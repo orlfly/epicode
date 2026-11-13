@@ -1,0 +1,38 @@
+{
+  "FileVersion": 3,
+  "Version": 1,
+  "VersionName": "0.1.0",
+  "FriendlyName": "Epicode Studio",
+  "Description": "Native Slate production workspace for the Epicode video engine.",
+  "Category": "Epicode",
+  "CreatedBy": "Epicode",
+  "CanContainContent": false,
+  "IsBetaVersion": true,
+  "Installed": false,
+  "EnabledByDefault": true,
+  "Modules": [
+    {
+      "Name": "EpicodeStudio",
+      "Type": "Editor",
+      "LoadingPhase": "Default"
+    }
+  ],
+  "Plugins": [
+    {
+      "Name": "EpicodeCore",
+      "Enabled": true
+    },
+    {
+      "Name": "EpicodeImport",
+      "Enabled": true
+    },
+    {
+      "Name": "EpicodeRender",
+      "Enabled": true
+    },
+    {
+      "Name": "EpicodeControlAPI",
+      "Enabled": true
+    }
+  ]
+}

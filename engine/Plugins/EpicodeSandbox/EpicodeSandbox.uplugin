@@ -1,0 +1,26 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "0.1.0",
+	"FriendlyName": "Epicode Sandbox",
+	"Description": "Deterministic high-freedom sandbox runtime for Epicode productions.",
+	"Category": "Epicode",
+	"CreatedBy": "Epicode",
+	"CanContainContent": false,
+	"IsBetaVersion": true,
+	"Installed": false,
+	"EnabledByDefault": true,
+	"Modules": [
+		{
+			"Name": "EpicodeSandbox",
+			"Type": "Runtime",
+			"LoadingPhase": "PreDefault"
+		}
+	],
+	"Plugins": [
+		{
+			"Name": "EpicodeCore",
+			"Enabled": true
+		}
+	]
+}

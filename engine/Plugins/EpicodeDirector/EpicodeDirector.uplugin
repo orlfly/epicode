@@ -1,0 +1,30 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "0.1.0",
+	"FriendlyName": "Epicode Director",
+	"Description": "Narrative direction, replay and take tooling for Epicode sandbox sessions.",
+	"Category": "Epicode",
+	"CreatedBy": "Epicode",
+	"CanContainContent": false,
+	"IsBetaVersion": true,
+	"Installed": false,
+	"EnabledByDefault": true,
+	"Modules": [
+		{
+			"Name": "EpicodeDirector",
+			"Type": "Runtime",
+			"LoadingPhase": "PreDefault"
+		}
+	],
+	"Plugins": [
+		{
+			"Name": "EpicodeCore",
+			"Enabled": true
+		},
+		{
+			"Name": "EpicodeSandbox",
+			"Enabled": true
+		}
+	]
+}

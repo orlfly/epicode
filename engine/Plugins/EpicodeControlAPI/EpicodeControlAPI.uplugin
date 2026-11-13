@@ -1,0 +1,38 @@
+{
+  "FileVersion": 3,
+  "Version": 1,
+  "VersionName": "0.1.0",
+  "FriendlyName": "Epicode Control API",
+  "Description": "HTTP JSON-RPC and WebSocket control plane for the Epicode video engine.",
+  "Category": "Epicode",
+  "CreatedBy": "Epicode",
+  "CanContainContent": false,
+  "IsBetaVersion": true,
+  "Installed": false,
+  "EnabledByDefault": true,
+  "Modules": [
+    {
+      "Name": "EpicodeControlAPI",
+      "Type": "Runtime",
+      "LoadingPhase": "Default"
+    }
+  ],
+  "Plugins": [
+    {
+      "Name": "EpicodeCore",
+      "Enabled": true
+    },
+		{
+			"Name": "EpicodeNetwork",
+			"Enabled": true
+		},
+		{
+			"Name": "EpicodeSandbox",
+			"Enabled": true
+		},
+		{
+			"Name": "EpicodeDirector",
+			"Enabled": true
+		}
+  ]
+}

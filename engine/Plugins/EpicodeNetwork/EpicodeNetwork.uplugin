@@ -1,0 +1,30 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "0.1.0",
+	"FriendlyName": "Epicode Network",
+	"Description": "Authoritative multiplayer session plane for the Epicode video engine.",
+	"Category": "Epicode",
+	"CreatedBy": "Epicode",
+	"CanContainContent": false,
+	"IsBetaVersion": true,
+	"Installed": false,
+	"EnabledByDefault": true,
+	"Modules": [
+		{
+			"Name": "EpicodeNetwork",
+			"Type": "Runtime",
+			"LoadingPhase": "PreDefault"
+		}
+	],
+	"Plugins": [
+		{
+			"Name": "EpicodeCore",
+			"Enabled": true
+		},
+		{
+			"Name": "EpicodeSandbox",
+			"Enabled": true
+		}
+	]
+}

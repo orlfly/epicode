@@ -1,0 +1,29 @@
+{
+	"FileVersion": 3,
+	"EngineAssociation": "",
+	"Category": "Video Production",
+	"Description": "Epicode video production engine built on Unreal Engine 5.8.",
+	"Modules": [
+		{
+			"Name": "EpicodeVideo",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		}
+	],
+	"Plugins": [
+		{ "Name": "EpicodeCore", "Enabled": true },
+		{ "Name": "EpicodeNetwork", "Enabled": true },
+		{ "Name": "EpicodeSandbox", "Enabled": true },
+		{ "Name": "EpicodeDirector", "Enabled": true },
+		{ "Name": "EpicodeImport", "Enabled": true },
+		{ "Name": "EpicodeControlAPI", "Enabled": true },
+		{ "Name": "EpicodeStudio", "Enabled": true },
+		{ "Name": "EpicodeRender", "Enabled": true },
+		{ "Name": "MovieRenderPipeline", "Enabled": true },
+		{ "Name": "WebSocketNetworking", "Enabled": true },
+		{ "Name": "USDImporter", "Enabled": true },
+		{ "Name": "EditorScriptingUtilities", "Enabled": true },
+		{ "Name": "SequencerScripting", "Enabled": true },
+		{ "Name": "LevelSequenceEditor", "Enabled": true }
+	]
+}

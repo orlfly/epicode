@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 2,
+  "sceneId": "11111111-1111-4111-8111-111111111111",
+  "name": "Rooftop Heist Example",
+  "levelPath": "/Game/Maps/Rooftop",
+  "activeCameraId": "44444444-4444-4444-8444-444444444444",
+  "environment": {},
+  "runtime": {},
+  "entities": [
+    {
+      "id": "22222222-2222-4222-8222-222222222222",
+      "type": "Character",
+      "name": "Hero",
+      "visible": true,
+      "tags": ["cast"],
+      "transform": {
+        "location": [0, 0, 0],
+        "rotation": [0, 0, 0],
+        "scale": [1, 1, 1]
+      },
+      "character": {}
+    },
+    {
+      "id": "33333333-3333-4333-8333-333333333333",
+      "type": "Prop",
+      "name": "DoorControl",
+      "visible": true,
+      "tags": ["interactive"],
+      "transform": {
+        "location": [240, 0, 0],
+        "rotation": [0, 0, 0],
+        "scale": [1, 1, 1]
+      },
+      "prop": {}
+    },
+    {
+      "id": "44444444-4444-4444-8444-444444444444",
+      "type": "Camera",
+      "name": "Camera01",
+      "visible": true,
+      "tags": ["camera"],
+      "transform": {
+        "location": [-400, -300, 220],
+        "rotation": [-15, 35, 0],
+        "scale": [1, 1, 1]
+      },
+      "camera": {}
+    }
+  ]
+}
