@@ -22,6 +22,8 @@
 #include "Misc/FileHelper.h"
 #include "Misc/MessageDialog.h"
 #include "Misc/Paths.h"
+#include "Misc/CommandLine.h"
+#include "Misc/Parse.h"
 #include "SEpicodeFocusedLevelViewport.h"
 #include "Selection.h"
 #include "EditorViewportCommands.h"
@@ -72,28 +74,21 @@ namespace
 void SEpicodeFocusedShell::Construct(const FArguments& InArgs)
 {
 	LoadLayout();
+	bSkipViewportForSmoke = FParse::Param(
+		FCommandLine::Get(), TEXT("EpicodeFocusedEditorViewportRetrySmoke"));
 
 	const TSharedPtr<ILevelEditor> LevelEditor = InArgs._LevelEditor;
+	LevelEditorWeak = LevelEditor;
 	if (!LevelEditor.IsValid())
 	{
 		ViewportError = TEXT("LevelEditor instance is not available");
 	}
-	else
+	else if (bSkipViewportForSmoke)
 	{
-		TSharedRef<SEpicodeFocusedLevelViewport> NewViewport =
-			MakeShared<SEpicodeFocusedLevelViewport>();
-
-		FAssetEditorViewportConstructionArgs ViewportArgs;
-		ViewportArgs.ViewportType = LVT_Perspective;
-		ViewportArgs.bRealtime = true;
-		ViewportArgs.ConfigKey = NAME_None;
-
-		NewViewport->Construct(
-			SLevelViewport::FArguments().ParentLevelEditor(LevelEditor),
-			ViewportArgs);
-
-		LevelEditor->AddStandaloneLevelViewport(NewViewport);
-		Viewport = NewViewport;
+		ViewportError = TEXT("smoke: viewport creation intentionally skipped");
+	}
+	else if (CreateViewport())
+	{
 		ApplySavedCamera();
 		BindFocusedShortcuts();
 	}
@@ -518,6 +513,12 @@ bool SEpicodeFocusedShell::ProcessShortcutForSmokeTest(
 		false, false,
 		false);
 	return Viewport->GetCommandList()->ProcessCommandBindings(Key, Modifiers, false);
+}
+
+bool SEpicodeFocusedShell::RetryViewportForSmokeTest()
+{
+	RetryViewport();
+	return Viewport.IsValid();
 }
 
 void SEpicodeFocusedShell::SelectFirstActorForSmokeTest()
@@ -1117,21 +1118,6 @@ void SEpicodeFocusedShell::BuildHelpMenu(FMenuBuilder& MenuBuilder)
 
 TSharedRef<SWidget> SEpicodeFocusedShell::BuildWorkspace()
 {
-	TSharedRef<SWidget> CenterContent = Viewport.IsValid()
-		? StaticCastSharedRef<SWidget>(Viewport.ToSharedRef())
-		: StaticCastSharedRef<SWidget>(
-			SNew(SBorder)
-				.BorderImage(FAppStyle::Get().GetBrush("Brushes.Panel"))
-				.Padding(FMargin(24.0f))
-				[
-					SNew(STextBlock)
-						.Text(FText::FromString(
-							FString::Printf(
-								TEXT("Focused viewport could not be created.\n%s\n\nRun with --legacy for the full editor."),
-								*ViewportError)))
-						.AutoWrapText(true)
-				]);
-
 	return SNew(SSplitter)
 		.PhysicalSplitterHandleSize(4.0f)
 		+ SSplitter::Slot()
@@ -1171,7 +1157,10 @@ TSharedRef<SWidget> SEpicodeFocusedShell::BuildWorkspace()
 					.BorderImage(FAppStyle::Get().GetBrush("Brushes.Panel"))
 					.Padding(FMargin(1.0f))
 					[
-						CenterContent
+						SAssignNew(ViewportHost, SBox)
+						[
+							BuildViewportContent()
+						]
 					]
 			]
 		+ SSplitter::Slot()
@@ -1198,6 +1187,117 @@ TSharedRef<SWidget> SEpicodeFocusedShell::BuildWorkspace()
 						BuildChatPanel()
 					]
 			];
+}
+
+bool SEpicodeFocusedShell::CreateViewport()
+{
+	if (Viewport.IsValid())
+	{
+		return true;
+	}
+
+	TSharedPtr<ILevelEditor> LevelEditor = LevelEditorWeak.Pin();
+	if (!LevelEditor.IsValid())
+	{
+		ViewportError = TEXT("LevelEditor instance is not available");
+		return false;
+	}
+
+	TSharedRef<SEpicodeFocusedLevelViewport> NewViewport =
+		MakeShared<SEpicodeFocusedLevelViewport>();
+
+	FAssetEditorViewportConstructionArgs ViewportArgs;
+	ViewportArgs.ViewportType = LVT_Perspective;
+	ViewportArgs.bRealtime = true;
+	ViewportArgs.ConfigKey = NAME_None;
+
+	NewViewport->Construct(
+		SLevelViewport::FArguments().ParentLevelEditor(LevelEditor),
+		ViewportArgs);
+
+	LevelEditor->AddStandaloneLevelViewport(NewViewport);
+	Viewport = NewViewport;
+	ViewportError.Reset();
+	return true;
+}
+
+void SEpicodeFocusedShell::RetryViewport()
+{
+	if (Viewport.IsValid())
+	{
+		return;
+	}
+
+	if (!CreateViewport())
+	{
+		Invalidate(EInvalidateWidgetReason::Layout);
+		return;
+	}
+
+	if (ViewportHost.IsValid())
+	{
+		ViewportHost->SetContent(Viewport.ToSharedRef());
+	}
+	ApplySavedCamera();
+	BindFocusedShortcuts();
+	FocusViewport();
+	RefreshUi();
+	Invalidate(EInvalidateWidgetReason::Layout);
+	UE_LOG(LogTemp, Display, TEXT("FocusedEditor viewport retry succeeded"));
+}
+
+TSharedRef<SWidget> SEpicodeFocusedShell::BuildViewportContent()
+{
+	if (Viewport.IsValid())
+	{
+		return Viewport.ToSharedRef();
+	}
+
+	return SNew(SBorder)
+		.BorderImage(FAppStyle::Get().GetBrush("Brushes.Panel"))
+		.Padding(FMargin(24.0f))
+		[
+			SNew(SVerticalBox)
+			+ SVerticalBox::Slot()
+				.AutoHeight()
+				[
+					SNew(STextBlock)
+						.Text(FText::FromString(
+							FString::Printf(
+								TEXT("聚焦视口创建失败。\n%s"),
+								ViewportError.IsEmpty() ? TEXT("未知错误") : *ViewportError)))
+						.AutoWrapText(true)
+				]
+			+ SVerticalBox::Slot()
+				.AutoHeight()
+				.Padding(FMargin(0.0f, 12.0f, 0.0f, 0.0f))
+				[
+					SNew(SHorizontalBox)
+					+ SHorizontalBox::Slot()
+						.AutoWidth()
+						.Padding(FMargin(0.0f, 0.0f, 8.0f, 0.0f))
+						[
+							SNew(SButton)
+								.OnClicked_Lambda([this]()
+								{
+									RetryViewport();
+									return FReply::Handled();
+								})
+								[
+									SNew(STextBlock).Text(LOCTEXT("RetryViewport", "重试"))
+								]
+						]
+					+ SHorizontalBox::Slot()
+						.AutoWidth()
+						.VAlign(VAlign_Center)
+						[
+							SNew(STextBlock)
+								.Text(LOCTEXT("LegacyHint", "仍失败时使用 ./Scripts/Editor.sh --legacy"))
+								.Font(FAppStyle::Get().GetFontStyle("SmallFont"))
+								.ColorAndOpacity(MutedTextColor())
+						]
+				]
+		];
 }
 
 TSharedRef<SWidget> SEpicodeFocusedShell::MakePanelHeader(

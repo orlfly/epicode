@@ -97,6 +97,11 @@ void FEpicodeEditorShellModule::ShutdownModule()
 		FTSTicker::GetCoreTicker().RemoveTicker(ShortcutSmokeHandle);
 		ShortcutSmokeHandle.Reset();
 	}
+	if (ViewportRetrySmokeHandle.IsValid())
+	{
+		FTSTicker::GetCoreTicker().RemoveTicker(ViewportRetrySmokeHandle);
+		ViewportRetrySmokeHandle.Reset();
+	}
 
 	if (ShellWidget.IsValid())
 	{
@@ -198,7 +203,9 @@ bool FEpicodeEditorShellModule::TryCreateShellWindow()
 				.LevelEditor(LevelEditor)
 		];
 
-	if (!ShellWidget.IsValid() || !ShellWidget->IsViewportReady())
+	const bool bRetrySmoke = FParse::Param(
+		FCommandLine::Get(), TEXT("EpicodeFocusedEditorViewportRetrySmoke"));
+	if (!ShellWidget.IsValid() || (!ShellWidget->IsViewportReady() && !bRetrySmoke))
 	{
 		const FString Reason = ShellWidget.IsValid()
 			? ShellWidget->GetViewportError()
@@ -243,6 +250,13 @@ bool FEpicodeEditorShellModule::TryCreateShellWindow()
 		ShortcutSmokeStep = 0;
 		ShortcutSmokeHandle = FTSTicker::GetCoreTicker().AddTicker(
 			FTickerDelegate::CreateRaw(this, &FEpicodeEditorShellModule::HandleShortcutSmokeTick),
+			1.0f);
+	}
+	else if (bRetrySmoke)
+	{
+		ViewportRetrySmokeStep = 0;
+		ViewportRetrySmokeHandle = FTSTicker::GetCoreTicker().AddTicker(
+			FTickerDelegate::CreateRaw(this, &FEpicodeEditorShellModule::HandleViewportRetrySmokeTick),
 			1.0f);
 	}
 	else if (FParse::Param(FCommandLine::Get(), TEXT("EpicodeFocusedEditorSelectFirst")))
@@ -463,6 +477,33 @@ bool FEpicodeEditorShellModule::HandleShortcutSmokeTick(float DeltaTime)
 		return false;
 	}
 	return true;
+}
+
+bool FEpicodeEditorShellModule::HandleViewportRetrySmokeTick(float DeltaTime)
+{
+	if (!ShellWidget.IsValid())
+	{
+		ViewportRetrySmokeHandle.Reset();
+		return false;
+	}
+
+	if (ViewportRetrySmokeStep++ == 0)
+	{
+		const bool bReady = ShellWidget->RetryViewportForSmokeTest();
+		UE_LOG(LogEpicodeEditorShell, Display,
+			TEXT("FocusedEditor viewport retry smoke: ready=%s"), bReady ? TEXT("true") : TEXT("false"));
+		return true;
+	}
+
+	ViewportRetrySmokeHandle.Reset();
+	WriteScreenshot(TEXT("EditorShellViewportRetry.png"));
+
+	if (FParse::Param(FCommandLine::Get(), TEXT("EpicodeFocusedEditorExitSmoke"))
+		&& ShellWindow.IsValid())
+	{
+		ShellWindow->RequestDestroyWindow();
+	}
+	return false;
 }
 
 bool FEpicodeEditorShellModule::HandleScreenshotTick(float DeltaTime)

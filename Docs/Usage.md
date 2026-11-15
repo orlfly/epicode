@@ -71,6 +71,7 @@ cd engine
 - 四类灯光创建、相机创建/激活/删除、删除选中实体、对象搜索与类型过滤、视口与列表双向选择。
 - `Q/W/E/R/F/Delete/Ctrl+Z/Ctrl+Shift+Z/Ctrl+Y/Ctrl+S` 快捷键；`Delete` 和 `Ctrl+S` 走 Epicode 命令，不绕过场景文档。
 - 状态栏显示场景、选择、变换模式、库/对话状态、revision 和保存状态。
+- 无场景、空场景、库为空、对话不可用和视口初始化失败均有空状态；视口失败页可点击“重试”，仍失败时使用 `--legacy`。
 
 角色/物品本地库放置与导入、场景文件导入、对话后端仍分别在任务 4.x、5.x 实现，菜单中对应项为占位。详细验收见 `engine/Saved/Logs/editor-shell-workbench.log`。
 

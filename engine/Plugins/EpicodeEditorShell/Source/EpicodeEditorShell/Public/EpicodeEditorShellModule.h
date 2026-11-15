@@ -30,6 +30,7 @@ private:
 	bool HandleGizmoSmokeTick(float DeltaTime);
 	bool HandleWorkbenchSmokeTick(float DeltaTime);
 	bool HandleShortcutSmokeTick(float DeltaTime);
+	bool HandleViewportRetrySmokeTick(float DeltaTime);
 	bool HandleScreenshotTick(float DeltaTime);
 	void HandleShellClosed(const TSharedRef<SWindow>& Window);
 	void HandleEditorPreExit();
@@ -47,10 +48,12 @@ private:
 	FTSTicker::FDelegateHandle GizmoSmokeHandle;
 	FTSTicker::FDelegateHandle WorkbenchSmokeHandle;
 	FTSTicker::FDelegateHandle ShortcutSmokeHandle;
+	FTSTicker::FDelegateHandle ViewportRetrySmokeHandle;
 	FTSTicker::FDelegateHandle ScreenshotHandle;
 	int32 GizmoSmokeStep = 0;
 	int32 WorkbenchSmokeStep = 0;
 	int32 ShortcutSmokeStep = 0;
+	int32 ViewportRetrySmokeStep = 0;
 	double RetryStartTime = 0.0;
 	bool bFocusedModeRequested = false;
 	bool bShellCreationAttempted = false;

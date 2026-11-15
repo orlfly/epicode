@@ -13,6 +13,7 @@ class FMenuBuilder;
 class ILevelEditor;
 class SEditableTextBox;
 class SMultiLineEditableTextBox;
+class SBox;
 class SScrollBox;
 class STextBlock;
 class SVerticalBox;
@@ -39,6 +40,7 @@ public:
 	void OpenMenuForSmokeTest(const FString& Label);
 	void CloseMenuForSmokeTest(const FString& Label);
 	bool ProcessShortcutForSmokeTest(const FKey& Key, bool bCtrl = false, bool bShift = false);
+	bool RetryViewportForSmokeTest();
 	int32 GetEntityCountForSmokeTest() const { return Model.GetEntityCount(); }
 	FString GetWidgetModeForSmokeTest() const { return GetTransformModeLabel(); }
 	void FocusViewport();
@@ -49,6 +51,7 @@ public:
 private:
 	TSharedRef<SWidget> BuildMenuBar();
 	TSharedRef<SWidget> BuildWorkspace();
+	TSharedRef<SWidget> BuildViewportContent();
 	TSharedRef<SWidget> BuildLeftPanel();
 	TSharedRef<SWidget> BuildChatPanel();
 	TSharedRef<SWidget> BuildStatusBar();
@@ -77,6 +80,8 @@ private:
 	void SaveLayout();
 	void MarkLayoutDirty();
 	void MarkRecentScene(const FString& InSceneId);
+	bool CreateViewport();
+	void RetryViewport();
 	void ApplySavedCamera();
 	void BindFocusedShortcuts();
 	FString GetLayoutPath() const;
@@ -119,6 +124,8 @@ private:
 	FString GetTransformModeLabel() const;
 
 	TSharedPtr<SEpicodeFocusedLevelViewport> Viewport;
+	TWeakPtr<ILevelEditor> LevelEditorWeak;
+	TSharedPtr<SBox> ViewportHost;
 	FEpicodeFocusedShellModel Model;
 	TWeakObjectPtr<AActor> SmokeActor;
 	FString ViewportError;
@@ -153,6 +160,7 @@ private:
 	double LastLayoutSaveTime = 0.0;
 	bool bHasSavedCamera = false;
 	bool bLayoutDirty = false;
+	bool bSkipViewportForSmoke = false;
 	bool bLeftPanelVisible = true;
 	bool bRightPanelVisible = true;
 };

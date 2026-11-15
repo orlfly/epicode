@@ -378,7 +378,7 @@ SidecarIdleSeconds=300
 
 ## 2.x 聚焦工作台实施结果
 
-2026-11-15 已完成 2.1、2.2、2.5、2.6、2.7、2.8，并部分完成 2.3、2.4、2.9。实现仍坚持“界面级隐藏、复用命令注册表、保留 `--legacy`”的约束。
+2026-11-15 已完成 2.1、2.2、2.5、2.6、2.7、2.8、2.9，并部分完成 2.3、2.4。实现仍坚持“界面级隐藏、复用命令注册表、保留 `--legacy`”的约束。
 
 ### 布局与面板
 
@@ -406,15 +406,16 @@ SidecarIdleSeconds=300
 ### 状态栏与空状态
 
 - 状态栏显示当前场景、选择实体、变换模式、库场景数、对话后端状态、`revision`、保存状态和最近一条命令结果。
-- 无场景时在视口中央显示新建/打开入口；空场景对象列表提示创建灯光或相机；库为空、对话不可用、视口初始化失败均有文本提示；视口失败文本提示使用 `--legacy`。运行时重建视口的“重试”尚未实现。
+- 无场景时在视口中央显示新建/打开入口；空场景对象列表提示创建灯光或相机；库为空、对话不可用、视口初始化失败均有文本提示；视口失败页提供“重试”按钮和 `--legacy` 提示。`CreateViewport()` 已从 `Construct` 拆出，重试时把新 `SLevelViewport` 塞回 `SBox` 并重新绑定快捷键/镜头。
 
 ### 验证证据
 
-- 构建：`engine/Scripts/Build.sh`，`Result: Succeeded`；插件二进制 sha256 `7d850d0f6111f84e2035d486e9bb6a792e128025408b988a89b082e2985b3e49`，大小 672472 bytes。
-- 工作台截图：`Saved/Screenshots/EditorShellWorkbench.png`（sha256 `4d8e7575...8acce3acb`）、折叠布局 `EditorShellCollapsed.png`（`398e096a...c310502f`）、菜单 popup `EditorShellMenuPopup.png`（`7814fbd3...57c96e3`）。
+- 构建：`engine/Scripts/Build.sh`，`Result: Succeeded`；插件二进制 sha256 `40321f3a52aa017239c9af881fffd270267f01c5d497a60a6d72b0ff009f12ba`，大小 683192 bytes。
+- 工作台截图：`Saved/Screenshots/EditorShellWorkbench.png`（sha256 `510ac320...99bff8f`）、折叠布局 `EditorShellCollapsed.png`（`01022510...ea8def6`）、菜单 popup `EditorShellMenuPopup.png`（`7814fbd3...57c96e3`）。
 - 菜单实际打开：日志 `FocusedEditor menu smoke: label=场景 open=true`；Slate 主窗口截图不含 popup，使用 `WriteActiveWindowScreenshot` 抓取 112x173 菜单窗口。
 - 快捷键：W/E/R/Q/F 均 `handled=true`；Delete 后实体数 4 -> 3，Ctrl+Z 后 3 -> 4；Ctrl+S `handled=true`；无 `EnsureFailed`。
-- 布局恢复：把 `layout.json` 改为左右折叠、宽度 0.30/0.15 后重启，日志 `layout loaded: left=false right=false leftWidth=0.300 rightWidth=0.150 recent=8 camera=true`；截图 `EditorShellLayoutLoad.png`（`9b9a5f39...e0187637`）。
+- 布局恢复：把 `layout.json` 改为左右折叠、宽度 0.30/0.15 后重启，日志 `layout loaded: left=false right=false leftWidth=0.300 rightWidth=0.150 recent=2 camera=true`；截图 `EditorShellLayoutLoad.png`（`d70d99c7...c25b53f7`）。
+- 视口重试：`-EpicodeFocusedEditorViewportRetrySmoke` 先注入创建失败，1 秒后重试；日志 `viewport retry smoke: ready=true`，截图 `EditorShellViewportRetry.png`（`4d17a5d2...3995e9c1`）。
 - 证据全文：`engine/Saved/Logs/editor-shell-workbench.log`。
 
 ### 已知限制
@@ -422,7 +423,7 @@ SidecarIdleSeconds=300
 - 角色/物品本地库的放置、导入、删除未实现，菜单项为占位，任务 4.x 完成。
 - 场景文件导入未实现，留给任务 4.5；当前只支持场景库里的 `scene.json`。
 - 对话面板无后端，发送按钮禁用；任务 5.x 接入。
-- 视口运行时重试未实现；失败时只能看到错误和 `--legacy` 提示。
+- 视口重试已实现并做故障注入测试；真实驱动失败仍只能由用户手动点击重试。
 
 ## Data Model
 
