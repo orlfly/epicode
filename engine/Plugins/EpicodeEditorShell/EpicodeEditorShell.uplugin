@@ -1,0 +1,26 @@
+{
+  "FileVersion": 3,
+  "Version": 1,
+  "VersionName": "0.1.0",
+  "FriendlyName": "Epicode Editor Shell",
+  "Description": "Focused Epicode editor shell for the video production workspace.",
+  "Category": "Epicode",
+  "CreatedBy": "Epicode",
+  "CanContainContent": false,
+  "IsBetaVersion": true,
+  "Installed": false,
+  "EnabledByDefault": true,
+  "Modules": [
+    {
+      "Name": "EpicodeEditorShell",
+      "Type": "Editor",
+      "LoadingPhase": "Default"
+    }
+  ],
+  "Plugins": [
+    {
+      "Name": "EpicodeCore",
+      "Enabled": true
+    }
+  ]
+}

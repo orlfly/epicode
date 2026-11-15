@@ -19,7 +19,7 @@ UE_ROOT=/opt/UnrealEngine ./Scripts/Build.sh
 | --- | --- |
 | `Scripts/env.sh` | 解析 `UE_ROOT`、项目文件和编辑器命令；`--check` 做环境检查 |
 | `Scripts/Build.sh` | 构建 `EpicodeVideoEditor Linux Development` |
-| `Scripts/Editor.sh` | 启动带界面的编辑器 |
+| `Scripts/Editor.sh` | 启动带界面的编辑器；默认聚焦模式，`--legacy` 进入完整 Editor |
 | `Scripts/Headless.sh` | 无界面启动，监听 HTTP/WS |
 | `Scripts/Test.sh` | 运行 `Epicode.*` 自动化测试 |
 | `Scripts/Smoke.sh` | 启动、建场景、建实体、保存、可选渲染并退出 |
@@ -55,7 +55,7 @@ cd engine
 ./Scripts/Editor.sh
 ```
 
-打开 `Window > Epicode Studio`。
+默认是聚焦编辑器 PoC。要打开九页签 Studio，使用 `./Scripts/Editor.sh --legacy`，然后打开 `Window > Epicode Studio`。
 
 无界面：
 

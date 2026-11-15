@@ -10,7 +10,7 @@
 
 namespace
 {
-	FString MakeTempDirectory(const FString& InName)
+	FString MakeSandboxTempDirectory(const FString& InName)
 	{
 		const FString Directory = FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("Epicode"), TEXT("SandboxTests"), InName + TEXT("-") + FGuid::NewGuid().ToString(EGuidFormats::Digits));
 		IFileManager::Get().MakeDirectory(*Directory, true);
@@ -57,7 +57,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FEpicodeFoundationContentDigestTest, "Epicode.F
 
 bool FEpicodeFoundationContentDigestTest::RunTest(const FString& Parameters)
 {
-	const FString Directory = MakeTempDirectory(TEXT("digest"));
+	const FString Directory = MakeSandboxTempDirectory(TEXT("digest"));
 	TestTrue(TEXT("file a"), FFileHelper::SaveStringToFile(TEXT("alpha"), *FPaths::Combine(Directory, TEXT("a.txt"))));
 	TestTrue(TEXT("file b"), FFileHelper::SaveStringToFile(TEXT("beta"), *FPaths::Combine(Directory, TEXT("b.txt"))));
 

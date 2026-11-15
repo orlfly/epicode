@@ -62,7 +62,16 @@ cd engine
 ./Scripts/Editor.sh
 ```
 
-打开编辑器后，通过以下任一入口打开 Studio：
+`Editor.sh` 默认启动聚焦编辑器 PoC：只显示 Epicode 菜单、场景视口和状态栏，stock Unreal 主窗口、主标签、工具栏和 Content Browser 被隐藏。聚焦模式当前只验证了视口、选择和移动/旋转/缩放 gizmo，完整工作台仍在任务 2.x 之后实现。
+
+需要旧版完整 Editor 和九页签 Studio 时使用：
+
+```bash
+cd engine
+./Scripts/Editor.sh --legacy
+```
+
+打开旧版编辑器后，通过以下任一入口打开 Studio：
 
 - 菜单 `Window > Epicode Studio`
 - Level Editor 工具栏中的 `Epicode Studio` 按钮

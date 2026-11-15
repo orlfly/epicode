@@ -9,7 +9,7 @@
 
 namespace
 {
-	FString SerializeJson(const TSharedPtr<FJsonObject>& InJson)
+	FString SerializeTakeJson(const TSharedPtr<FJsonObject>& InJson)
 	{
 		FString Text;
 		const TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&Text);
@@ -125,7 +125,7 @@ bool FEpicodeTakeRenderRequest::FromJson(const TSharedPtr<FJsonObject>& InJson, 
 
 FString FEpicodeTakeRender::ComputeTakeDigest(const FEpicodeDirectorTake& InTake)
 {
-	return FEpicodeContentDigest::HashString(SerializeJson(InTake.ToJson()));
+	return FEpicodeContentDigest::HashString(SerializeTakeJson(InTake.ToJson()));
 }
 
 bool FEpicodeTakeRender::ValidateTracks(const FEpicodeDirectorTake& InTake, const TArray<FEpicodeTakeRenderTrack>& InTracks, FString& OutError)
@@ -322,7 +322,7 @@ bool FEpicodeTakeRender::WriteManifest(
 	Manifest->SetArrayField(TEXT("tracks"), TrackValues);
 	Manifest->SetStringField(TEXT("createdAt"), FDateTime::UtcNow().ToIso8601());
 	OutManifestPath = FPaths::Combine(InRenderRequest.OutputDirectory, TEXT("take-render.json"));
-	if (!FFileHelper::SaveStringToFile(SerializeJson(Manifest), *OutManifestPath, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM))
+	if (!FFileHelper::SaveStringToFile(SerializeTakeJson(Manifest), *OutManifestPath, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM))
 	{
 		OutError = TEXT("TAKE_MANIFEST_FAILED: cannot write manifest");
 		return false;
