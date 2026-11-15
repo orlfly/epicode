@@ -87,6 +87,16 @@ void FEpicodeEditorShellModule::ShutdownModule()
 		FTSTicker::GetCoreTicker().RemoveTicker(GizmoSmokeHandle);
 		GizmoSmokeHandle.Reset();
 	}
+	if (WorkbenchSmokeHandle.IsValid())
+	{
+		FTSTicker::GetCoreTicker().RemoveTicker(WorkbenchSmokeHandle);
+		WorkbenchSmokeHandle.Reset();
+	}
+	if (ShortcutSmokeHandle.IsValid())
+	{
+		FTSTicker::GetCoreTicker().RemoveTicker(ShortcutSmokeHandle);
+		ShortcutSmokeHandle.Reset();
+	}
 
 	if (ShellWidget.IsValid())
 	{
@@ -221,6 +231,20 @@ bool FEpicodeEditorShellModule::TryCreateShellWindow()
 			FTickerDelegate::CreateRaw(this, &FEpicodeEditorShellModule::HandleGizmoSmokeTick),
 			1.5f);
 	}
+	else if (FParse::Param(FCommandLine::Get(), TEXT("EpicodeFocusedEditorWorkbenchSmoke")))
+	{
+		WorkbenchSmokeStep = 0;
+		WorkbenchSmokeHandle = FTSTicker::GetCoreTicker().AddTicker(
+			FTickerDelegate::CreateRaw(this, &FEpicodeEditorShellModule::HandleWorkbenchSmokeTick),
+			1.0f);
+	}
+	else if (FParse::Param(FCommandLine::Get(), TEXT("EpicodeFocusedEditorShortcutSmoke")))
+	{
+		ShortcutSmokeStep = 0;
+		ShortcutSmokeHandle = FTSTicker::GetCoreTicker().AddTicker(
+			FTickerDelegate::CreateRaw(this, &FEpicodeEditorShellModule::HandleShortcutSmokeTick),
+			1.0f);
+	}
 	else if (FParse::Param(FCommandLine::Get(), TEXT("EpicodeFocusedEditorSelectFirst")))
 	{
 		SelectionHandle = FTSTicker::GetCoreTicker().AddTicker(
@@ -315,6 +339,125 @@ bool FEpicodeEditorShellModule::HandleGizmoSmokeTick(float DeltaTime)
 		{
 			UE_LOG(LogEpicodeEditorShell, Display,
 				TEXT("FocusedEditor exit smoke: closing focused shell window"));
+			ShellWindow->RequestDestroyWindow();
+		}
+		return false;
+	}
+	return true;
+}
+
+bool FEpicodeEditorShellModule::HandleWorkbenchSmokeTick(float DeltaTime)
+{
+	if (!ShellWidget.IsValid())
+	{
+		WorkbenchSmokeHandle.Reset();
+		return false;
+	}
+
+	switch (WorkbenchSmokeStep++)
+	{
+	case 0:
+		ShellWidget->CreateWorkbenchSceneForSmokeTest();
+		break;
+	case 1:
+		ShellWidget->SpawnWorkbenchEntitiesForSmokeTest();
+		break;
+	case 2:
+		ShellWidget->SelectFirstSceneEntityForSmokeTest();
+		break;
+	case 3:
+		WriteScreenshot(TEXT("EditorShellWorkbench.png"));
+		break;
+	case 4:
+		ShellWidget->SetPanelsForSmokeTest(false, false);
+		break;
+	case 5:
+		WriteScreenshot(TEXT("EditorShellCollapsed.png"));
+		break;
+	case 6:
+		ShellWidget->SetPanelsForSmokeTest(true, true);
+		ShellWidget->OpenMenuForSmokeTest(TEXT("场景"));
+		break;
+	case 7:
+		WriteScreenshot(TEXT("EditorShellMenu.png"));
+		WriteActiveWindowScreenshot(TEXT("EditorShellMenuPopup.png"));
+		break;
+	default:
+		ShellWidget->CloseMenuForSmokeTest(TEXT("场景"));
+		WorkbenchSmokeHandle.Reset();
+		UE_LOG(LogEpicodeEditorShell, Display, TEXT("FocusedEditor workbench smoke complete"));
+		if (FParse::Param(FCommandLine::Get(), TEXT("EpicodeFocusedEditorExitSmoke"))
+			&& ShellWindow.IsValid())
+		{
+			UE_LOG(LogEpicodeEditorShell, Display,
+				TEXT("FocusedEditor exit smoke: closing focused shell window"));
+			ShellWindow->RequestDestroyWindow();
+		}
+		return false;
+	}
+	return true;
+}
+
+bool FEpicodeEditorShellModule::HandleShortcutSmokeTick(float DeltaTime)
+{
+	if (!ShellWidget.IsValid())
+	{
+		ShortcutSmokeHandle.Reset();
+		return false;
+	}
+
+	auto Process = [this](const FKey& Key, bool bCtrl, bool bShift, const TCHAR* Label)
+	{
+		const bool bHandled = ShellWidget->ProcessShortcutForSmokeTest(Key, bCtrl, bShift);
+		UE_LOG(LogEpicodeEditorShell, Display,
+			TEXT("FocusedEditor shortcut smoke: %s handled=%s mode=%s entities=%d"),
+			Label,
+			bHandled ? TEXT("true") : TEXT("false"),
+			*ShellWidget->GetWidgetModeForSmokeTest(),
+			ShellWidget->GetEntityCountForSmokeTest());
+	};
+
+	switch (ShortcutSmokeStep++)
+	{
+	case 0:
+		ShellWidget->CreateWorkbenchSceneForSmokeTest();
+		break;
+	case 1:
+		ShellWidget->SpawnWorkbenchEntitiesForSmokeTest();
+		break;
+	case 2:
+		ShellWidget->SelectFirstSceneEntityForSmokeTest();
+		break;
+	case 3:
+		Process(EKeys::W, false, false, TEXT("W"));
+		break;
+	case 4:
+		Process(EKeys::E, false, false, TEXT("E"));
+		break;
+	case 5:
+		Process(EKeys::R, false, false, TEXT("R"));
+		break;
+	case 6:
+		Process(EKeys::Q, false, false, TEXT("Q"));
+		break;
+	case 7:
+		Process(EKeys::F, false, false, TEXT("F"));
+		break;
+	case 8:
+		Process(EKeys::Delete, false, false, TEXT("Delete"));
+		break;
+	case 9:
+		Process(EKeys::Z, true, false, TEXT("Ctrl+Z"));
+		break;
+	case 10:
+		Process(EKeys::S, true, false, TEXT("Ctrl+S"));
+		break;
+	default:
+		ShortcutSmokeHandle.Reset();
+		UE_LOG(LogEpicodeEditorShell, Display, TEXT("FocusedEditor shortcut smoke complete"));
+		if (FParse::Param(FCommandLine::Get(), TEXT("EpicodeFocusedEditorExitSmoke"))
+			&& ShellWindow.IsValid())
+		{
 			ShellWindow->RequestDestroyWindow();
 		}
 		return false;
@@ -432,6 +575,51 @@ void FEpicodeEditorShellModule::WriteScreenshot(const FString& FileName)
 
 	UE_LOG(LogEpicodeEditorShell, Display,
 		TEXT("FocusedEditor screenshot written: %s (%dx%d, %d bytes)"),
+		*Path, Size.X, Size.Y, PngData.Num());
+}
+
+void FEpicodeEditorShellModule::WriteActiveWindowScreenshot(const FString& FileName)
+{
+	const TSharedPtr<SWindow> ActiveWindow =
+		FSlateApplication::Get().GetActiveTopLevelWindow();
+	if (!ActiveWindow.IsValid())
+	{
+		UE_LOG(LogEpicodeEditorShell, Warning,
+			TEXT("FocusedEditor active-window screenshot skipped: no active window"));
+		return;
+	}
+
+	UE_LOG(LogEpicodeEditorShell, Display,
+		TEXT("FocusedEditor active window: title='%s' size=%s"),
+		*ActiveWindow->GetTitle().ToString(),
+		*ActiveWindow->GetSizeInScreen().ToString());
+
+	TArray<FColor> Colors;
+	FIntVector Size;
+	if (!FSlateApplication::Get().TakeScreenshot(ActiveWindow.ToSharedRef(), Colors, Size)
+		|| Size.X <= 0 || Size.Y <= 0 || Colors.Num() == 0)
+	{
+		UE_LOG(LogEpicodeEditorShell, Error,
+			TEXT("FocusedEditor active-window screenshot failed: Slate returned no image"));
+		return;
+	}
+
+	const FString Path = FPaths::Combine(
+		FPaths::ProjectSavedDir(), TEXT("Screenshots"), FileName);
+	IFileManager::Get().MakeDirectory(*FPaths::GetPath(Path), true);
+
+	TArray64<uint8> PngData;
+	FImageUtils::PNGCompressImageArray(
+		Size.X, Size.Y, TArrayView64<const FColor>(Colors.GetData(), Colors.Num()), PngData);
+	if (!FFileHelper::SaveArrayToFile(PngData, *Path))
+	{
+		UE_LOG(LogEpicodeEditorShell, Error,
+			TEXT("FocusedEditor active-window screenshot could not be written: %s"), *Path);
+		return;
+	}
+
+	UE_LOG(LogEpicodeEditorShell, Display,
+		TEXT("FocusedEditor active-window screenshot written: %s (%dx%d, %d bytes)"),
 		*Path, Size.X, Size.Y, PngData.Num());
 }
 

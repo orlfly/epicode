@@ -28,11 +28,14 @@ private:
 	bool HandleRetryTick(float DeltaTime);
 	bool HandleSelectionTick(float DeltaTime);
 	bool HandleGizmoSmokeTick(float DeltaTime);
+	bool HandleWorkbenchSmokeTick(float DeltaTime);
+	bool HandleShortcutSmokeTick(float DeltaTime);
 	bool HandleScreenshotTick(float DeltaTime);
 	void HandleShellClosed(const TSharedRef<SWindow>& Window);
 	void HandleEditorPreExit();
 	void FailFocusedStartup(const FString& Reason);
 	static void WriteScreenshot(const FString& FileName);
+	static void WriteActiveWindowScreenshot(const FString& FileName);
 
 	TSharedPtr<SWindow> ShellWindow;
 	TSharedPtr<SEpicodeFocusedShell> ShellWidget;
@@ -42,8 +45,12 @@ private:
 	FTSTicker::FDelegateHandle RetryHandle;
 	FTSTicker::FDelegateHandle SelectionHandle;
 	FTSTicker::FDelegateHandle GizmoSmokeHandle;
+	FTSTicker::FDelegateHandle WorkbenchSmokeHandle;
+	FTSTicker::FDelegateHandle ShortcutSmokeHandle;
 	FTSTicker::FDelegateHandle ScreenshotHandle;
 	int32 GizmoSmokeStep = 0;
+	int32 WorkbenchSmokeStep = 0;
+	int32 ShortcutSmokeStep = 0;
 	double RetryStartTime = 0.0;
 	bool bFocusedModeRequested = false;
 	bool bShellCreationAttempted = false;

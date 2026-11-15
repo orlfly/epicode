@@ -376,6 +376,54 @@ SidecarIdleSeconds=300
 - 主 specs 的 `production-ui` 用 MODIFIED 记录默认模式切换；旧需求保留为 legacy 行为。
 - 本变更不删除旧代码；先保证聚焦模式稳定，再在后续变更归档旧 UI。
 
+## 2.x 聚焦工作台实施结果
+
+2026-11-15 已完成 2.1、2.2、2.5、2.6、2.7、2.8，并部分完成 2.3、2.4、2.9。实现仍坚持“界面级隐藏、复用命令注册表、保留 `--legacy`”的约束。
+
+### 布局与面板
+
+- 根控件使用垂直 `SVerticalBox`：顶部菜单栏、中间 `SSplitter` 三栏、底部状态栏。
+- 左栏包含对象列表、搜索框、类型过滤按钮、本地库场景列表和新场景名输入；右栏是对话占位、输入框和禁用的发送按钮。
+- 左右栏折叠通过 `SSplitter::Slot` 的动态 `Value`/`MinSize` 加 `SBox::Visibility` 实现；中间视口使用 `Value = 1 - left - right` 自动扩展。
+- 面板宽度、折叠状态、最近场景 ID 和视口镜头写入 `Saved/Epicode/Editor/layout.json`。使用 `FJsonSerializer` 读写，槽位 `OnSlotResized` 标脏，`Tick` 节流 0.5 秒保存，析构时再保存一次。
+- 视口镜头通过 `FLevelEditorViewportClient::GetViewLocation/GetViewRotation` 读取，启动时 `SetViewLocation/SetViewRotation` 恢复；相机速度使用 UE 5.8 的 `FEditorViewportCameraSpeedSettings` 新 API，避免已废弃的整数设置接口。
+
+### 菜单与对象
+
+- 菜单固定为场景、角色、物品、灯光、摄像、本地库、编辑、视图、对话、帮助；不注册环境、渲染、API、Content Browser、蓝图、材质、Sequencer、地形、植被、PIE、插件和项目设置入口。
+- 场景菜单：新建、打开、最近场景、保存、另存为、关闭；最近场景按 `layout.json` 的顺序优先，场景删除走 `scene.delete` 回收站并二次确认。
+- 灯光菜单：点光、聚光、方向光、矩形光，调用 `light.create`；摄像菜单创建/激活/删除相机；角色/物品菜单的资产放置和导入保留占位，留给任务 4.x。
+- 对象列表通过 `entity.list`/`FEpicodeSceneSubsystem::GetDocument` 的数据展示，支持名称搜索和类型过滤；选择写回 `GEditor` 与 `SEditorViewport`，视口选择每 0.25 秒同步回列表。
+- 所有写操作走 `FEpicodeEngineSubsystem::ExecuteCommand`，不直接改 Actor；命令成功后刷新模型、列表和状态栏。
+
+### 快捷键与拦截
+
+- 通过 `SLevelViewport::GetCommandList()` 的子命令列表覆盖通用命令：`Q/W/E/R`（`FEditorViewportCommands`）、`F`（`FocusViewportToSelection`）、`Delete`（`FGenericCommands`）、`Ctrl+Z`/`Ctrl+Shift+Z`/`Ctrl+Y`（Undo/Redo）、`Ctrl+S`（`FLevelEditorCommands::Save`）。
+- `Delete` 映射到 `entity.delete`，避免 stock `edactDeleteSelected` 绕过 Epicode 文档；`Ctrl+S` 映射到 `scene.save`。
+- `FLevelViewportCommands::FocusViewportToSelectedActors` 在创建早期可能为空，已改为 `FEditorViewportCommands::FocusViewportToSelection`，并在 `MapAction` 前检查命令指针，避免 `EnsureFailed`。
+- 快捷键 smoke 直接调用 `FUICommandList::ProcessCommandBindings` 验证绑定，不依赖真实键盘事件；结果记录在 `Saved/Logs/editor-shell-workbench.log`。
+
+### 状态栏与空状态
+
+- 状态栏显示当前场景、选择实体、变换模式、库场景数、对话后端状态、`revision`、保存状态和最近一条命令结果。
+- 无场景时在视口中央显示新建/打开入口；空场景对象列表提示创建灯光或相机；库为空、对话不可用、视口初始化失败均有文本提示；视口失败文本提示使用 `--legacy`。运行时重建视口的“重试”尚未实现。
+
+### 验证证据
+
+- 构建：`engine/Scripts/Build.sh`，`Result: Succeeded`；插件二进制 sha256 `7d850d0f6111f84e2035d486e9bb6a792e128025408b988a89b082e2985b3e49`，大小 672472 bytes。
+- 工作台截图：`Saved/Screenshots/EditorShellWorkbench.png`（sha256 `4d8e7575...8acce3acb`）、折叠布局 `EditorShellCollapsed.png`（`398e096a...c310502f`）、菜单 popup `EditorShellMenuPopup.png`（`7814fbd3...57c96e3`）。
+- 菜单实际打开：日志 `FocusedEditor menu smoke: label=场景 open=true`；Slate 主窗口截图不含 popup，使用 `WriteActiveWindowScreenshot` 抓取 112x173 菜单窗口。
+- 快捷键：W/E/R/Q/F 均 `handled=true`；Delete 后实体数 4 -> 3，Ctrl+Z 后 3 -> 4；Ctrl+S `handled=true`；无 `EnsureFailed`。
+- 布局恢复：把 `layout.json` 改为左右折叠、宽度 0.30/0.15 后重启，日志 `layout loaded: left=false right=false leftWidth=0.300 rightWidth=0.150 recent=8 camera=true`；截图 `EditorShellLayoutLoad.png`（`9b9a5f39...e0187637`）。
+- 证据全文：`engine/Saved/Logs/editor-shell-workbench.log`。
+
+### 已知限制
+
+- 角色/物品本地库的放置、导入、删除未实现，菜单项为占位，任务 4.x 完成。
+- 场景文件导入未实现，留给任务 4.5；当前只支持场景库里的 `scene.json`。
+- 对话面板无后端，发送按钮禁用；任务 5.x 接入。
+- 视口运行时重试未实现；失败时只能看到错误和 `--legacy` 提示。
+
 ## Data Model
 
 ### Library index

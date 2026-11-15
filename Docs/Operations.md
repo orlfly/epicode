@@ -55,7 +55,7 @@ cd engine
 ./Scripts/Editor.sh
 ```
 
-默认是聚焦编辑器 PoC。要打开九页签 Studio，使用 `./Scripts/Editor.sh --legacy`，然后打开 `Window > Epicode Studio`。
+默认是聚焦工作台（菜单、视口、对象列表/本地库、对话占位、状态栏）。布局、折叠状态、最近场景和视口镜头保存在 `Saved/Epicode/Editor/layout.json`；删除该文件即可恢复默认布局。要打开九页签 Studio，使用 `./Scripts/Editor.sh --legacy`，然后打开 `Window > Epicode Studio`。
 
 无界面：
 

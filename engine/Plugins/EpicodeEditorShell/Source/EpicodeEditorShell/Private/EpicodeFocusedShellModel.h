@@ -1,0 +1,66 @@
+#pragma once
+
+#include "CoreMinimal.h"
+#include "EpicodeCommand.h"
+
+class UEpicodeSceneSubsystem;
+
+struct FEpicodeFocusedEntityRow
+{
+	FGuid Id;
+	FString Name;
+	FString Type;
+	FString TypeLabel;
+	bool bVisible = true;
+};
+
+struct FEpicodeFocusedSceneRow
+{
+	FString Id;
+	FString Name;
+	bool bCurrent = false;
+	bool bAvailable = true;
+};
+
+/**
+ * Small command-backed model for the focused shell. It intentionally uses the
+ * same FEpicodeCommandRegistry as Studio and the control API so the shell does
+ * not invent a second editing path.
+ */
+class FEpicodeFocusedShellModel
+{
+public:
+	void Refresh();
+	FEpicodeCommandResult Execute(const FString& Method, const TSharedPtr<FJsonObject>& Params = nullptr);
+
+	const TArray<FEpicodeFocusedEntityRow>& GetEntities() const { return Entities; }
+	const TArray<FEpicodeFocusedSceneRow>& GetScenes() const { return Scenes; }
+	const FGuid& GetSelectedEntityId() const { return SelectedEntityId; }
+	void SetSelectedEntityId(const FGuid& InId) { SelectedEntityId = InId; }
+
+	bool HasScene() const { return bHasScene; }
+	bool IsDirty() const { return bDirty; }
+	const FString& GetSceneName() const { return SceneName; }
+	const FString& GetSceneId() const { return SceneId; }
+	const FString& GetLastMessage() const { return LastMessage; }
+	void SetLastMessage(const FString& InMessage) { LastMessage = InMessage; }
+	uint64 GetRevision() const { return Revision; }
+	int32 GetSceneCount() const { return Scenes.Num(); }
+	int32 GetEntityCount() const { return Entities.Num(); }
+	UEpicodeSceneSubsystem* GetSceneSubsystem() const;
+
+	const FEpicodeFocusedEntityRow* FindEntity(const FGuid& InId) const;
+	FString GetSelectedEntityLabel() const;
+	FString GetSignature() const;
+
+private:
+	TArray<FEpicodeFocusedEntityRow> Entities;
+	TArray<FEpicodeFocusedSceneRow> Scenes;
+	FGuid SelectedEntityId;
+	FString SceneName;
+	FString SceneId;
+	FString LastMessage;
+	uint64 Revision = 0;
+	bool bHasScene = false;
+	bool bDirty = false;
+};

@@ -15,13 +15,16 @@ public class EpicodeEditorShell : ModuleRules
 			"InputCore",
 			"Slate",
 			"SlateCore",
+			"EpicodeCore",
 			"UnrealEd",
 			"LevelEditor",
 			"EditorFramework",
 			"EditorStyle",
 			"AppFramework",
 			"ToolMenus",
-			"Projects"
+			"Projects",
+			"Json",
+			"JsonUtilities"
 		});
 	}
 }

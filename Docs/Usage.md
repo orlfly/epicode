@@ -62,7 +62,17 @@ cd engine
 ./Scripts/Editor.sh
 ```
 
-`Editor.sh` 默认启动聚焦编辑器 PoC：只显示 Epicode 菜单、场景视口和状态栏，stock Unreal 主窗口、主标签、工具栏和 Content Browser 被隐藏。聚焦模式当前只验证了视口、选择和移动/旋转/缩放 gizmo，完整工作台仍在任务 2.x 之后实现。
+`Editor.sh` 默认启动聚焦工作台：顶部 Epicode 菜单、中间实时视口、左侧对象列表/本地库、右侧对话占位和底部状态栏；stock Unreal 主窗口、主标签、工具栏和 Content Browser 被隐藏。
+
+当前 2.x 已支持：
+
+- 左右面板折叠和拖动调整宽度，布局、最近场景和视口镜头保存到 `Saved/Epicode/Editor/layout.json`，重启恢复。
+- 场景新建/打开/保存/另存为/关闭/最近场景/删除到回收站。
+- 四类灯光创建、相机创建/激活/删除、删除选中实体、对象搜索与类型过滤、视口与列表双向选择。
+- `Q/W/E/R/F/Delete/Ctrl+Z/Ctrl+Shift+Z/Ctrl+Y/Ctrl+S` 快捷键；`Delete` 和 `Ctrl+S` 走 Epicode 命令，不绕过场景文档。
+- 状态栏显示场景、选择、变换模式、库/对话状态、revision 和保存状态。
+
+角色/物品本地库放置与导入、场景文件导入、对话后端仍分别在任务 4.x、5.x 实现，菜单中对应项为占位。详细验收见 `engine/Saved/Logs/editor-shell-workbench.log`。
 
 需要旧版完整 Editor 和九页签 Studio 时使用：
 

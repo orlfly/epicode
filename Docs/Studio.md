@@ -4,7 +4,7 @@
 
 Studio 只属于旧版完整 Editor。使用 `./Scripts/Editor.sh --legacy` 启动后，通过编辑器菜单 `Window > Epicode Studio`，或 Level Editor 工具栏的 `Epicode Studio` 按钮打开。面板可停靠到任意位置。
 
-默认的 `./Scripts/Editor.sh` 启动聚焦编辑器 PoC，不显示九页签 Studio。
+默认的 `./Scripts/Editor.sh` 启动聚焦工作台，不显示九页签 Studio。聚焦工作台提供 Epicode 菜单、实时视口、对象列表/本地库、对话占位和状态栏；布局与最近场景保存在 `Saved/Epicode/Editor/layout.json`。
 
 ## 结构
 
