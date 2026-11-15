@@ -6,8 +6,11 @@
 #include "Editor/UnrealEdTypes.h"
 #include "Engine/StaticMeshActor.h"
 #include "EngineUtils.h"
+#include "DesktopPlatformModule.h"
 #include "EpicodeEntityActors.h"
+#include "EpicodeSceneLibrary.h"
 #include "EpicodeSceneSubsystem.h"
+#include "EpicodeSettings.h"
 #include "Framework/Application/SlateApplication.h"
 #include "Framework/Commands/UICommandList.h"
 #include "Framework/Commands/GenericCommands.h"
@@ -17,12 +20,14 @@
 #include "GameFramework/PlayerStart.h"
 #include "GameFramework/WorldSettings.h"
 #include "ILevelEditor.h"
+#include "IDesktopPlatform.h"
 #include "LevelEditorActions.h"
 #include "LevelViewportActions.h"
 #include "Misc/FileHelper.h"
 #include "Misc/MessageDialog.h"
 #include "Misc/Paths.h"
 #include "Misc/CommandLine.h"
+#include "Misc/PackageName.h"
 #include "Misc/Parse.h"
 #include "SEpicodeFocusedLevelViewport.h"
 #include "Selection.h"
@@ -33,6 +38,8 @@
 #include "Settings/EditorViewportSettings.h"
 #include "Styling/AppStyle.h"
 #include "Textures/SlateIcon.h"
+#include "UObject/Package.h"
+#include "UObject/SavePackage.h"
 #include "Widgets/Input/SButton.h"
 #include "Widgets/Input/SComboButton.h"
 #include "Widgets/Input/SEditableTextBox.h"
@@ -129,8 +136,11 @@ void SEpicodeFocusedShell::Construct(const FArguments& InArgs)
 	];
 
 	Model.Refresh();
+	Model.RefreshAssets();
 	LastSignature = Model.GetSignature();
+	LastAssetSignature = Model.GetAssetSignature();
 	RefreshObjectList();
+	RefreshAssetList();
 	RefreshSceneList();
 	RefreshStatus();
 	AddChatLine(TEXT("系统"), TEXT("对话后端尚未配置；场景命令、对象列表和视口可用。"));
@@ -742,6 +752,9 @@ void SEpicodeFocusedShell::BuildSceneMenu(FMenuBuilder& MenuBuilder)
 	MenuBuilder.AddSubMenu(
 		MenuText(TEXT("打开场景")), MenuText(TEXT("从本地库打开")),
 		FNewMenuDelegate::CreateSP(this, &SEpicodeFocusedShell::BuildOpenSceneMenu));
+	MenuBuilder.AddMenuEntry(
+		MenuText(TEXT("从文件导入场景...")), MenuText(TEXT("导入 Epicode scene.json")), FSlateIcon(),
+		FUIAction(FExecuteAction::CreateSP(this, &SEpicodeFocusedShell::ImportSceneFromFile)));
 	MenuBuilder.AddSubMenu(
 		MenuText(TEXT("最近场景")), MenuText(TEXT("本地库中最近修改的场景")),
 		FNewMenuDelegate::CreateSP(this, &SEpicodeFocusedShell::BuildRecentSceneMenu));
@@ -864,9 +877,20 @@ void SEpicodeFocusedShell::BuildCharacterMenu(FMenuBuilder& MenuBuilder)
 			DeleteSelectedEntityOfType(EEpicodeEntityType::Character);
 		})));
 	MenuBuilder.AddMenuSeparator();
+	MenuBuilder.AddSubMenu(
+		MenuText(TEXT("从本地库放置")), MenuText(TEXT("选择已导入的骨骼网格")),
+		FNewMenuDelegate::CreateSP(
+			this, &SEpicodeFocusedShell::BuildAssetPlaceMenu, FString(TEXT("Character"))));
 	MenuBuilder.AddMenuEntry(
-		MenuText(TEXT("放置角色")), MenuText(TEXT("角色资产导入将在任务 4 接入")), FSlateIcon(),
-		FUIAction());
+		MenuText(TEXT("导入角色到本地库...")), MenuText(TEXT("支持 FBX/GLTF 骨骼网格")), FSlateIcon(),
+		FUIAction(FExecuteAction::CreateLambda([this]()
+		{
+			ImportAssetIntoLibrary(TEXT("Character"));
+		})));
+	MenuBuilder.AddSubMenu(
+		MenuText(TEXT("从本地库删除角色")), MenuText(TEXT("只移除索引，不删除资产文件")),
+		FNewMenuDelegate::CreateSP(
+			this, &SEpicodeFocusedShell::BuildAssetDeleteMenu, FString(TEXT("Character"))));
 	MenuBuilder.AddMenuEntry(
 		MenuText(TEXT("角色动画")), MenuText(TEXT("动画工作流将在任务 4 接入")), FSlateIcon(),
 		FUIAction());
@@ -885,8 +909,95 @@ void SEpicodeFocusedShell::BuildPropMenu(FMenuBuilder& MenuBuilder)
 		})));
 	MenuBuilder.AddMenuSeparator();
 	MenuBuilder.AddMenuEntry(
-		MenuText(TEXT("放置物品")), MenuText(TEXT("物品资产导入将在任务 4 接入")), FSlateIcon(),
-		FUIAction());
+		MenuText(TEXT("导入物品到本地库...")), MenuText(TEXT("支持 FBX/OBJ/GLTF 静态网格")), FSlateIcon(),
+		FUIAction(FExecuteAction::CreateLambda([this]()
+		{
+			ImportAssetIntoLibrary(TEXT("Prop"));
+		})));
+	MenuBuilder.AddSubMenu(
+		MenuText(TEXT("从本地库放置")), MenuText(TEXT("选择已导入的静态网格")),
+		FNewMenuDelegate::CreateSP(
+			this, &SEpicodeFocusedShell::BuildAssetPlaceMenu, FString(TEXT("Prop"))));
+	MenuBuilder.AddSubMenu(
+		MenuText(TEXT("从本地库删除物品")), MenuText(TEXT("只移除索引，不删除资产文件")),
+		FNewMenuDelegate::CreateSP(
+			this, &SEpicodeFocusedShell::BuildAssetDeleteMenu, FString(TEXT("Prop"))));
+}
+
+void SEpicodeFocusedShell::BuildAssetPlaceMenu(
+	FMenuBuilder& MenuBuilder, FString Type)
+{
+	Model.RefreshAssets();
+	bool bAny = false;
+	for (const FEpicodeFocusedAssetRow& Row : Model.GetAssets())
+	{
+		if (Row.Type != Type)
+		{
+			continue;
+		}
+		bAny = true;
+		MenuBuilder.AddMenuEntry(
+			FText::FromString(Row.Name),
+			FText::FromString(Row.AssetPath),
+			FSlateIcon(),
+			FUIAction(FExecuteAction::CreateLambda([this, AssetPath = Row.AssetPath, AssetType = Row.Type]()
+			{
+				PlaceAsset(AssetPath, AssetType);
+			})));
+	}
+	if (!bAny)
+	{
+		MenuBuilder.AddMenuEntry(
+			MenuText(Type == TEXT("Character") ? TEXT("本地库暂无角色") : TEXT("本地库暂无物品")),
+			MenuText(TEXT("先从本地库导入资产")),
+			FSlateIcon(),
+			FUIAction());
+	}
+}
+
+void SEpicodeFocusedShell::BuildAssetDeleteMenu(
+	FMenuBuilder& MenuBuilder, FString Type)
+{
+	Model.RefreshAssets();
+	bool bAny = false;
+	for (const FEpicodeFocusedAssetRow& Row : Model.GetAssets())
+	{
+		if (Row.Type != Type)
+		{
+			continue;
+		}
+		bAny = true;
+		MenuBuilder.AddMenuEntry(
+			FText::FromString(Row.Name),
+			MenuText(TEXT("从本地库移除索引，保留资产文件")),
+			FSlateIcon(),
+			FUIAction(FExecuteAction::CreateLambda([this, AssetPath = Row.AssetPath, AssetName = Row.Name]()
+			{
+				if (FMessageDialog::Open(
+					EAppMsgType::YesNo,
+					FText::FromString(FString::Printf(
+						TEXT("从本地库移除 %s？\n\n只会移除索引，不会删除资产文件。"),
+						*AssetName)))
+					!= EAppReturnType::Yes)
+				{
+					return;
+				}
+				Model.HideAsset(AssetPath);
+				LastAssetSignature = Model.GetAssetSignature();
+				RefreshAssetList();
+				RefreshStatus();
+				AddChatLine(TEXT("系统"), FString::Printf(
+					TEXT("已从本地库移除 %s（资产文件保留）"), *AssetName));
+			})));
+	}
+	if (!bAny)
+	{
+		MenuBuilder.AddMenuEntry(
+			MenuText(Type == TEXT("Character") ? TEXT("本地库暂无角色") : TEXT("本地库暂无物品")),
+			MenuText(TEXT("没有可移除的索引")),
+			FSlateIcon(),
+			FUIAction());
+	}
 }
 
 void SEpicodeFocusedShell::BuildLightMenu(FMenuBuilder& MenuBuilder)
@@ -937,8 +1048,29 @@ void SEpicodeFocusedShell::BuildLibraryMenu(FMenuBuilder& MenuBuilder)
 		MenuText(TEXT("刷新本地库")), FText::GetEmpty(), FSlateIcon(),
 		FUIAction(FExecuteAction::CreateSP(this, &SEpicodeFocusedShell::RefreshUi)));
 	MenuBuilder.AddMenuEntry(
+		MenuText(TEXT("刷新资源库")), FText::GetEmpty(), FSlateIcon(),
+		FUIAction(FExecuteAction::CreateLambda([this]()
+		{
+			Model.RefreshAssets();
+			LastAssetSignature = Model.GetAssetSignature();
+			RefreshAssetList();
+			RefreshUi();
+		})));
+	MenuBuilder.AddMenuEntry(
+		MenuText(TEXT("恢复隐藏资源")), MenuText(TEXT("重新显示从本地库移除的资产")), FSlateIcon(),
+		FUIAction(FExecuteAction::CreateLambda([this]()
+		{
+			Model.RestoreHiddenAssets();
+			LastAssetSignature = Model.GetAssetSignature();
+			RefreshAssetList();
+			RefreshStatus();
+		})));
+	MenuBuilder.AddMenuEntry(
 		MenuText(TEXT("新建场景")), FText::GetEmpty(), FSlateIcon(),
 		FUIAction(FExecuteAction::CreateSP(this, &SEpicodeFocusedShell::NewScene)));
+	MenuBuilder.AddMenuEntry(
+		MenuText(TEXT("导入场景文件...")), FText::GetEmpty(), FSlateIcon(),
+		FUIAction(FExecuteAction::CreateSP(this, &SEpicodeFocusedShell::ImportSceneFromFile)));
 	MenuBuilder.AddSubMenu(
 		MenuText(TEXT("打开场景")), FText::GetEmpty(),
 		FNewMenuDelegate::CreateSP(this, &SEpicodeFocusedShell::BuildOpenSceneMenu));
@@ -1470,7 +1602,7 @@ TSharedRef<SWidget> SEpicodeFocusedShell::BuildLeftPanel()
 						]
 				]
 			+ SVerticalBox::Slot()
-				.FillHeight(0.55f)
+				.FillHeight(0.45f)
 				[
 					SNew(SBorder)
 						.BorderImage(FAppStyle::Get().GetBrush("Brushes.Recessed"))
@@ -1480,6 +1612,35 @@ TSharedRef<SWidget> SEpicodeFocusedShell::BuildLeftPanel()
 							+ SScrollBox::Slot()
 								[
 									SAssignNew(ObjectListBox, SVerticalBox)
+								]
+					]
+				]
+			+ SVerticalBox::Slot()
+				.AutoHeight()
+				.Padding(FMargin(0.0f, 6.0f, 0.0f, 4.0f))
+				[
+					MakePanelHeader(
+						TEXT("资源库"),
+						SNew(STextBlock)
+							.Text_Lambda([this]()
+							{
+								return FText::FromString(FString::Printf(
+									TEXT("%d 项"), Model.GetAssets().Num()));
+							})
+							.Font(FAppStyle::Get().GetFontStyle("SmallFont"))
+							.ColorAndOpacity(MutedTextColor()))
+				]
+			+ SVerticalBox::Slot()
+				.FillHeight(0.25f)
+				[
+					SNew(SBorder)
+						.BorderImage(FAppStyle::Get().GetBrush("Brushes.Recessed"))
+						.Padding(FMargin(2.0f))
+						[
+							SNew(SScrollBox)
+							+ SScrollBox::Slot()
+								[
+									SAssignNew(AssetListBox, SVerticalBox)
 								]
 						]
 				]
@@ -1529,7 +1690,7 @@ TSharedRef<SWidget> SEpicodeFocusedShell::BuildLeftPanel()
 						]
 				]
 			+ SVerticalBox::Slot()
-				.FillHeight(0.45f)
+				.FillHeight(0.30f)
 				[
 					SNew(SBorder)
 						.BorderImage(FAppStyle::Get().GetBrush("Brushes.Recessed"))
@@ -1809,6 +1970,13 @@ void SEpicodeFocusedShell::RefreshUi()
 		RefreshSceneList();
 	}
 	RefreshStatus();
+
+	const FString AssetSignature = Model.GetAssetSignature();
+	if (AssetSignature != LastAssetSignature)
+	{
+		LastAssetSignature = AssetSignature;
+		RefreshAssetList();
+	}
 }
 
 void SEpicodeFocusedShell::RefreshObjectList()
@@ -1907,6 +2075,56 @@ void SEpicodeFocusedShell::RefreshObjectList()
 					.Font(FAppStyle::Get().GetFontStyle("SmallFont"))
 					.ColorAndOpacity(MutedTextColor())
 					.AutoWrapText(true)
+			];
+	}
+}
+
+void SEpicodeFocusedShell::RefreshAssetList()
+{
+	if (!AssetListBox.IsValid())
+	{
+		return;
+	}
+
+	AssetListBox->ClearChildren();
+	if (Model.GetAssets().IsEmpty())
+	{
+		AssetListBox->AddSlot()
+			.AutoHeight()
+			.Padding(FMargin(6.0f, 8.0f))
+			[
+				SNew(STextBlock)
+					.Text(LOCTEXT("EmptyAssetLibrary", "本地库暂无角色/物品资源，可从角色或物品菜单导入"))
+					.Font(FAppStyle::Get().GetFontStyle("SmallFont"))
+					.ColorAndOpacity(MutedTextColor())
+					.AutoWrapText(true)
+			];
+		return;
+	}
+
+	for (const FEpicodeFocusedAssetRow& Row : Model.GetAssets())
+	{
+		const FString TypeLabel = Row.Type == TEXT("Character") ? TEXT("角色") : TEXT("物品");
+		AssetListBox->AddSlot()
+			.AutoHeight()
+			.Padding(FMargin(0.0f, 1.0f))
+			[
+				SNew(SButton)
+					.ButtonStyle(FAppStyle::Get(), "Menu.Button")
+					.ContentPadding(FMargin(6.0f, 3.0f))
+					.ToolTipText(FText::FromString(Row.AssetPath))
+					.OnClicked_Lambda([this, AssetPath = Row.AssetPath, AssetType = Row.Type]()
+					{
+						PlaceAsset(AssetPath, AssetType);
+						return FReply::Handled();
+					})
+					[
+						SNew(STextBlock)
+							.Text(FText::FromString(FString::Printf(
+								TEXT("%s  · %s"), *Row.Name, *TypeLabel)))
+							.Font(FAppStyle::Get().GetFontStyle("SmallFont"))
+							.ColorAndOpacity(PanelTextColor())
+					]
 			];
 	}
 }
@@ -2189,6 +2407,394 @@ void SEpicodeFocusedShell::OpenSceneById(FString InSceneId)
 		MarkRecentScene(InSceneId);
 	}
 	RefreshUi();
+}
+
+void SEpicodeFocusedShell::ImportSceneFromFile()
+{
+	IDesktopPlatform* DesktopPlatform = FDesktopPlatformModule::Get();
+	if (!DesktopPlatform)
+	{
+		Model.SetLastMessage(TEXT("桌面平台不可用，无法打开文件对话框"));
+		RefreshStatus();
+		return;
+	}
+
+	TArray<FString> Files;
+	const void* ParentWindowHandle =
+		FSlateApplication::Get().FindBestParentWindowHandleForDialogs(SharedThis(this));
+	if (!DesktopPlatform->OpenFileDialog(
+		ParentWindowHandle,
+		TEXT("导入 Epicode 场景"),
+		FPaths::ProjectDir(),
+		FString(),
+		TEXT("Epicode Scene (*.json)|*.json|All Files (*.*)|*.*"),
+		EFileDialogFlags::None,
+		Files)
+		|| Files.IsEmpty())
+	{
+		return;
+	}
+
+	const FString SourcePath = Files[0];
+	FEpicodeSceneDocument Probe;
+	FString ProbeError;
+	if (!FEpicodeSceneLibrary::Load(SourcePath, Probe, ProbeError))
+	{
+		FMessageDialog::Open(EAppMsgType::Ok, FText::FromString(ProbeError));
+		return;
+	}
+
+	FEpicodeSceneLibraryEntry Existing;
+	if (FEpicodeSceneLibrary::Find(
+		UEpicodeSettings::Get()->GetSceneRootPath(), Probe.SceneId, Existing))
+	{
+		const EAppReturnType::Type Answer = FMessageDialog::Open(
+			EAppMsgType::YesNo,
+			FText::FromString(FString::Printf(
+				TEXT("场景 %s 已存在，覆盖？"), *Probe.Name)));
+		if (Answer != EAppReturnType::Yes)
+		{
+			return;
+		}
+	}
+
+	FString SceneId;
+	FString Error;
+	if (!ImportSceneFile(SourcePath, SceneId, Error))
+	{
+		FMessageDialog::Open(EAppMsgType::Ok, FText::FromString(Error));
+		return;
+	}
+
+	MarkRecentScene(SceneId);
+	RefreshUi();
+	AddChatLine(TEXT("系统"), FString::Printf(TEXT("已导入场景 %s"), *Probe.Name));
+
+	if (FMessageDialog::Open(
+		EAppMsgType::YesNo,
+		FText::FromString(TEXT("场景已导入本地库，是否打开？"))) == EAppReturnType::Yes)
+	{
+		OpenSceneById(SceneId);
+	}
+}
+
+bool SEpicodeFocusedShell::ImportSceneFile(
+	const FString& SourcePath, FString& OutSceneId, FString& OutError)
+{
+	FEpicodeSceneDocument Document;
+	if (!FEpicodeSceneLibrary::Load(SourcePath, Document, OutError))
+	{
+		return false;
+	}
+
+	FGuid ParsedId;
+	if (Document.SceneId.IsEmpty() || !FGuid::Parse(Document.SceneId, ParsedId))
+	{
+		Document.SceneId = FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphens);
+	}
+	if (Document.Name.IsEmpty())
+	{
+		Document.Name = FPaths::GetBaseFilename(SourcePath);
+	}
+
+	FString DestinationPath;
+	if (!FEpicodeSceneLibrary::Save(
+		Document,
+		UEpicodeSettings::Get()->GetSceneRootPath(),
+		DestinationPath,
+		OutError))
+	{
+		return false;
+	}
+
+	OutSceneId = Document.SceneId;
+	return true;
+}
+
+bool SEpicodeFocusedShell::ImportSceneFromFileForSmokeTest(const FString& SourcePath)
+{
+	FString SceneId;
+	FString Error;
+	if (!ImportSceneFile(SourcePath, SceneId, Error))
+	{
+		Model.SetLastMessage(FString::Printf(TEXT("场景导入失败：%s"), *Error));
+		RefreshStatus();
+		return false;
+	}
+
+	MarkRecentScene(SceneId);
+	RefreshUi();
+	AddChatLine(TEXT("系统"), FString::Printf(TEXT("已导入场景 %s"), *SceneId));
+	return true;
+}
+
+void SEpicodeFocusedShell::ImportAssetIntoLibrary(const FString& Kind)
+{
+	IDesktopPlatform* DesktopPlatform = FDesktopPlatformModule::Get();
+	if (!DesktopPlatform)
+	{
+		Model.SetLastMessage(TEXT("桌面平台不可用，无法打开文件对话框"));
+		RefreshStatus();
+		return;
+	}
+
+	TArray<FString> Files;
+	const void* ParentWindowHandle =
+		FSlateApplication::Get().FindBestParentWindowHandleForDialogs(SharedThis(this));
+	const bool bCharacter = Kind == TEXT("Character");
+	const TCHAR* FileTypes = bCharacter
+		? TEXT("Skeletal Mesh (*.fbx;*.gltf;*.glb)|*.fbx;*.gltf;*.glb|All Files (*.*)|*.*")
+		: TEXT("Static Mesh (*.fbx;*.obj;*.gltf;*.glb)|*.fbx;*.obj;*.gltf;*.glb|All Files (*.*)|*.*");
+	if (!DesktopPlatform->OpenFileDialog(
+		ParentWindowHandle,
+		bCharacter ? TEXT("导入角色到本地库") : TEXT("导入物品到本地库"),
+		FPaths::ProjectDir(),
+		FString(),
+		FileTypes,
+		EFileDialogFlags::None,
+		Files)
+		|| Files.IsEmpty())
+	{
+		return;
+	}
+
+	TSharedPtr<FJsonObject> Params = MakeShared<FJsonObject>();
+	Params->SetStringField(TEXT("filePath"), Files[0]);
+	Params->SetStringField(TEXT("kind"), bCharacter ? TEXT("character") : TEXT("prop"));
+	Params->SetBoolField(TEXT("autoPlace"), false);
+	const bool bSceneWasClean = Model.HasScene() && !Model.IsDirty();
+	const FEpicodeCommandResult Result = Model.Execute(TEXT("import.file"), Params);
+	if (!Result.bSuccess)
+	{
+		FMessageDialog::Open(
+			EAppMsgType::Ok,
+			FText::FromString(Model.GetLastMessage()));
+		return;
+	}
+
+	FString SaveError;
+	if (!SaveImportedAssets(Result, SaveError))
+	{
+		FMessageDialog::Open(
+			EAppMsgType::Ok,
+			FText::FromString(FString::Printf(TEXT("资产已导入内存但保存失败：%s"), *SaveError)));
+		Model.SetLastMessage(SaveError);
+		RefreshStatus();
+		return;
+	}
+	RemoveImportedSceneEntities(Result, bSceneWasClean);
+	Model.RefreshAssets();
+	LastAssetSignature = Model.GetAssetSignature();
+	RefreshAssetList();
+	RefreshStatus();
+	AddChatLine(TEXT("系统"), FString::Printf(
+		TEXT("已导入%s资产：%s"), bCharacter ? TEXT("角色") : TEXT("物品"), *Files[0]));
+}
+
+bool SEpicodeFocusedShell::ImportAssetForSmokeTest(
+	const FString& SourcePath, const FString& Kind)
+{
+	TSharedPtr<FJsonObject> Params = MakeShared<FJsonObject>();
+	Params->SetStringField(TEXT("filePath"), SourcePath);
+	Params->SetStringField(TEXT("kind"), Kind.ToLower());
+	Params->SetBoolField(TEXT("autoPlace"), false);
+	const bool bSceneWasClean = Model.HasScene() && !Model.IsDirty();
+	const FEpicodeCommandResult Result = Model.Execute(TEXT("import.file"), Params);
+	if (!Result.bSuccess)
+	{
+		return false;
+	}
+
+	FString SaveError;
+	if (!SaveImportedAssets(Result, SaveError))
+	{
+		Model.SetLastMessage(SaveError);
+		RefreshStatus();
+		return false;
+	}
+	RemoveImportedSceneEntities(Result, bSceneWasClean);
+	Model.RefreshAssets();
+	LastAssetSignature = Model.GetAssetSignature();
+	RefreshAssetList();
+	RefreshStatus();
+	return true;
+}
+
+bool SEpicodeFocusedShell::SaveImportedAssets(
+	const FEpicodeCommandResult& Result, FString& OutError)
+{
+	if (!Result.Result.IsValid())
+	{
+		return true;
+	}
+	const TArray<TSharedPtr<FJsonValue>>* Assets = nullptr;
+	if (!Result.Result->TryGetArrayField(TEXT("assets"), Assets) || !Assets)
+	{
+		return true;
+	}
+
+	TSet<UPackage*> SavedPackages;
+	for (const TSharedPtr<FJsonValue>& Value : *Assets)
+	{
+		if (!Value.IsValid() || Value->Type != EJson::String)
+		{
+			continue;
+		}
+		const FString AssetPath = Value->AsString();
+		UObject* Asset = LoadObject<UObject>(nullptr, *AssetPath);
+		if (!Asset)
+		{
+			OutError = FString::Printf(TEXT("无法加载已导入资产：%s"), *AssetPath);
+			return false;
+		}
+		UPackage* Package = Asset->GetOutermost();
+		if (!Package || SavedPackages.Contains(Package))
+		{
+			continue;
+		}
+		FString Filename;
+		if (!FPackageName::TryConvertLongPackageNameToFilename(
+			Package->GetName(), Filename, FPackageName::GetAssetPackageExtension()))
+		{
+			OutError = FString::Printf(TEXT("无法解析资产保存路径：%s"), *Package->GetName());
+			return false;
+		}
+		FSavePackageArgs SaveArgs;
+		SaveArgs.TopLevelFlags = RF_Public | RF_Standalone;
+		SaveArgs.SaveFlags = SAVE_NoError;
+		SaveArgs.Error = GError;
+		if (!UPackage::SavePackage(Package, Asset, *Filename, SaveArgs))
+		{
+			OutError = FString::Printf(TEXT("保存资产失败：%s"), *Filename);
+			return false;
+		}
+		SavedPackages.Add(Package);
+	}
+	return true;
+}
+
+void SEpicodeFocusedShell::RemoveImportedSceneEntities(
+	const FEpicodeCommandResult& Result, bool bSceneWasClean)
+{
+	if (!Result.Result.IsValid() || !Model.HasScene())
+	{
+		return;
+	}
+	const TArray<TSharedPtr<FJsonValue>>* EntityIds = nullptr;
+	if (!Result.Result->TryGetArrayField(TEXT("entityIds"), EntityIds) || !EntityIds)
+	{
+		return;
+	}
+	for (const TSharedPtr<FJsonValue>& Value : *EntityIds)
+	{
+		if (!Value.IsValid() || Value->Type != EJson::String)
+		{
+			continue;
+		}
+		TSharedPtr<FJsonObject> DeleteParams = MakeShared<FJsonObject>();
+		DeleteParams->SetStringField(TEXT("id"), Value->AsString());
+		Model.Execute(TEXT("entity.delete"), DeleteParams);
+	}
+	if (bSceneWasClean)
+	{
+		Model.Execute(TEXT("scene.save"));
+	}
+	Model.Refresh();
+}
+
+bool SEpicodeFocusedShell::PlaceAsset(const FString& AssetPath, const FString& Type)
+{
+	if (!Model.HasScene())
+	{
+		Model.SetLastMessage(TEXT("请先新建或打开场景"));
+		RefreshStatus();
+		return false;
+	}
+
+	TSharedPtr<FJsonObject> Params = MakeShared<FJsonObject>();
+	Params->SetStringField(
+		Type == TEXT("Character") ? TEXT("skeletalMesh") : TEXT("staticMesh"),
+		AssetPath);
+	Params->SetStringField(TEXT("name"), FPaths::GetBaseFilename(AssetPath));
+	Params->SetObjectField(TEXT("transform"), GetPlacementTransform().ToJson());
+
+	const FEpicodeCommandResult Result = Model.Execute(
+		Type == TEXT("Character") ? TEXT("character.spawn") : TEXT("prop.spawn"),
+		Params);
+	if (!Result.bSuccess)
+	{
+		RefreshStatus();
+		return false;
+	}
+
+	FString EntityId;
+	if (Result.Result.IsValid() && Result.Result->HasField(TEXT("entity")))
+	{
+		const TSharedPtr<FJsonObject>* EntityObject = nullptr;
+		if (Result.Result->TryGetObjectField(TEXT("entity"), EntityObject) && EntityObject)
+		{
+			EntityId = (*EntityObject)->GetStringField(TEXT("id"));
+		}
+	}
+	FGuid Id;
+	if (!EntityId.IsEmpty() && FGuid::Parse(EntityId, Id))
+	{
+		SelectEntity(Id, true);
+		SetTransformMode(UE::Widget::WM_Translate);
+	}
+	RefreshUi();
+	AddChatLine(TEXT("系统"), FString::Printf(TEXT("已放置 %s"), *AssetPath));
+	return true;
+}
+
+bool SEpicodeFocusedShell::PlaceFirstAssetForSmokeTest(const FString& Type)
+{
+	for (const FEpicodeFocusedAssetRow& Row : Model.GetAssets())
+	{
+		if (Row.Type == Type)
+		{
+			return PlaceAsset(Row.AssetPath, Row.Type);
+		}
+	}
+	return false;
+}
+
+bool SEpicodeFocusedShell::HideFirstAssetForSmokeTest(const FString& Type)
+{
+	for (const FEpicodeFocusedAssetRow& Row : Model.GetAssets())
+	{
+		if (Row.Type == Type)
+		{
+			Model.HideAsset(Row.AssetPath);
+			LastAssetSignature = Model.GetAssetSignature();
+			RefreshAssetList();
+			RefreshStatus();
+			return true;
+		}
+	}
+	return false;
+}
+
+bool SEpicodeFocusedShell::RestoreHiddenAssetsForSmokeTest()
+{
+	Model.RestoreHiddenAssets();
+	LastAssetSignature = Model.GetAssetSignature();
+	RefreshAssetList();
+	RefreshStatus();
+	return true;
+}
+
+FEpicodeTransform SEpicodeFocusedShell::GetPlacementTransform() const
+{
+	FEpicodeTransform Transform;
+	if (Viewport.IsValid())
+	{
+		const FLevelEditorViewportClient& Client = Viewport->GetLevelViewportClient();
+		const FRotator ViewRotation = Client.GetViewRotation();
+		Transform.Location = Client.GetViewLocation() + ViewRotation.Vector() * 400.0;
+		Transform.Rotation = FRotator(0.0, ViewRotation.Yaw, 0.0);
+	}
+	return Transform;
 }
 
 void SEpicodeFocusedShell::DeleteSceneById(FString InSceneId)

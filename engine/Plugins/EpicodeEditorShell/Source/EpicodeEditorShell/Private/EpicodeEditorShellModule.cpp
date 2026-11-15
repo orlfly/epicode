@@ -102,6 +102,16 @@ void FEpicodeEditorShellModule::ShutdownModule()
 		FTSTicker::GetCoreTicker().RemoveTicker(ViewportRetrySmokeHandle);
 		ViewportRetrySmokeHandle.Reset();
 	}
+	if (SceneImportSmokeHandle.IsValid())
+	{
+		FTSTicker::GetCoreTicker().RemoveTicker(SceneImportSmokeHandle);
+		SceneImportSmokeHandle.Reset();
+	}
+	if (AssetLibrarySmokeHandle.IsValid())
+	{
+		FTSTicker::GetCoreTicker().RemoveTicker(AssetLibrarySmokeHandle);
+		AssetLibrarySmokeHandle.Reset();
+	}
 
 	if (ShellWidget.IsValid())
 	{
@@ -257,6 +267,29 @@ bool FEpicodeEditorShellModule::TryCreateShellWindow()
 		ViewportRetrySmokeStep = 0;
 		ViewportRetrySmokeHandle = FTSTicker::GetCoreTicker().AddTicker(
 			FTickerDelegate::CreateRaw(this, &FEpicodeEditorShellModule::HandleViewportRetrySmokeTick),
+			1.0f);
+	}
+	else if (FParse::Value(
+		FCommandLine::Get(),
+		TEXT("EpicodeFocusedEditorSceneImportSmoke="),
+		SceneImportSmokePath))
+	{
+		SceneImportSmokeHandle = FTSTicker::GetCoreTicker().AddTicker(
+			FTickerDelegate::CreateRaw(this, &FEpicodeEditorShellModule::HandleSceneImportSmokeTick),
+			1.0f);
+	}
+	else if (FParse::Value(
+		FCommandLine::Get(),
+		TEXT("EpicodeFocusedEditorAssetLibrarySmoke="),
+		AssetLibrarySmokePath))
+	{
+		FParse::Value(
+			FCommandLine::Get(),
+			TEXT("EpicodeFocusedEditorAssetLibraryCharacterSmoke="),
+			AssetLibrarySmokeCharacterPath);
+		AssetLibrarySmokeStep = 0;
+		AssetLibrarySmokeHandle = FTSTicker::GetCoreTicker().AddTicker(
+			FTickerDelegate::CreateRaw(this, &FEpicodeEditorShellModule::HandleAssetLibrarySmokeTick),
 			1.0f);
 	}
 	else if (FParse::Param(FCommandLine::Get(), TEXT("EpicodeFocusedEditorSelectFirst")))
@@ -504,6 +537,121 @@ bool FEpicodeEditorShellModule::HandleViewportRetrySmokeTick(float DeltaTime)
 		ShellWindow->RequestDestroyWindow();
 	}
 	return false;
+}
+
+bool FEpicodeEditorShellModule::HandleSceneImportSmokeTick(float DeltaTime)
+{
+	SceneImportSmokeHandle.Reset();
+	if (!ShellWidget.IsValid())
+	{
+		return false;
+	}
+
+	const bool bImported = ShellWidget->ImportSceneFromFileForSmokeTest(SceneImportSmokePath);
+	UE_LOG(LogEpicodeEditorShell, Display,
+		TEXT("FocusedEditor scene import smoke: success=%s source=%s"),
+		bImported ? TEXT("true") : TEXT("false"),
+		*SceneImportSmokePath);
+	WriteScreenshot(TEXT("EditorShellSceneImport.png"));
+
+	if (FParse::Param(FCommandLine::Get(), TEXT("EpicodeFocusedEditorExitSmoke"))
+		&& ShellWindow.IsValid())
+	{
+		ShellWindow->RequestDestroyWindow();
+	}
+	return false;
+}
+
+bool FEpicodeEditorShellModule::HandleAssetLibrarySmokeTick(float DeltaTime)
+{
+	if (!ShellWidget.IsValid())
+	{
+		AssetLibrarySmokeHandle.Reset();
+		return false;
+	}
+
+	switch (AssetLibrarySmokeStep++)
+	{
+	case 0:
+		ShellWidget->CreateWorkbenchSceneForSmokeTest();
+		break;
+	case 1:
+	{
+		const bool bImported = ShellWidget->ImportAssetForSmokeTest(
+			AssetLibrarySmokePath, TEXT("Prop"));
+		UE_LOG(LogEpicodeEditorShell, Display,
+			TEXT("FocusedEditor asset library smoke: imported=%s assets=%d"),
+			bImported ? TEXT("true") : TEXT("false"),
+			ShellWidget->GetAssetCountForSmokeTest());
+		break;
+	}
+	case 2:
+	{
+		if (AssetLibrarySmokeCharacterPath.IsEmpty())
+		{
+			return true;
+		}
+		const bool bImported = ShellWidget->ImportAssetForSmokeTest(
+			AssetLibrarySmokeCharacterPath, TEXT("Character"));
+		UE_LOG(LogEpicodeEditorShell, Display,
+			TEXT("FocusedEditor asset library smoke: characterImported=%s assets=%d"),
+			bImported ? TEXT("true") : TEXT("false"),
+			ShellWidget->GetAssetCountForSmokeTest());
+		break;
+	}
+	case 3:
+	{
+		const bool bPlaced = ShellWidget->PlaceFirstAssetForSmokeTest(TEXT("Prop"));
+		UE_LOG(LogEpicodeEditorShell, Display,
+			TEXT("FocusedEditor asset library smoke: placed=%s entities=%d"),
+			bPlaced ? TEXT("true") : TEXT("false"),
+			ShellWidget->GetEntityCountForSmokeTest());
+		break;
+	}
+	case 4:
+	{
+		if (AssetLibrarySmokeCharacterPath.IsEmpty())
+		{
+			return true;
+		}
+		const bool bPlaced = ShellWidget->PlaceFirstAssetForSmokeTest(TEXT("Character"));
+		UE_LOG(LogEpicodeEditorShell, Display,
+			TEXT("FocusedEditor asset library smoke: characterPlaced=%s entities=%d"),
+			bPlaced ? TEXT("true") : TEXT("false"),
+			ShellWidget->GetEntityCountForSmokeTest());
+		break;
+	}
+	case 5:
+	{
+		const bool bHidden = ShellWidget->HideFirstAssetForSmokeTest(TEXT("Prop"));
+		UE_LOG(LogEpicodeEditorShell, Display,
+			TEXT("FocusedEditor asset library smoke: hidden=%s assets=%d"),
+			bHidden ? TEXT("true") : TEXT("false"),
+			ShellWidget->GetAssetCountForSmokeTest());
+		break;
+	}
+	case 6:
+	{
+		const bool bRestored = ShellWidget->RestoreHiddenAssetsForSmokeTest();
+		UE_LOG(LogEpicodeEditorShell, Display,
+			TEXT("FocusedEditor asset library smoke: restored=%s assets=%d"),
+			bRestored ? TEXT("true") : TEXT("false"),
+			ShellWidget->GetAssetCountForSmokeTest());
+		break;
+	}
+	case 7:
+		WriteScreenshot(TEXT("EditorShellAssetLibrary.png"));
+		break;
+	default:
+		AssetLibrarySmokeHandle.Reset();
+		if (FParse::Param(FCommandLine::Get(), TEXT("EpicodeFocusedEditorExitSmoke"))
+			&& ShellWindow.IsValid())
+		{
+			ShellWindow->RequestDestroyWindow();
+		}
+		return false;
+	}
+	return true;
 }
 
 bool FEpicodeEditorShellModule::HandleScreenshotTick(float DeltaTime)

@@ -1,8 +1,20 @@
 #include "EpicodeFocusedShellModel.h"
 
 #include "EpicodeEngineSubsystem.h"
+#include "EpicodeSettings.h"
 #include "EpicodeSceneSubsystem.h"
 #include "EpicodeTypes.h"
+#include "AssetRegistry/AssetData.h"
+#include "AssetRegistry/AssetRegistryModule.h"
+#include "AssetRegistry/IAssetRegistry.h"
+#include "Engine/SkeletalMesh.h"
+#include "Engine/StaticMesh.h"
+#include "HAL/FileManager.h"
+#include "Misc/FileHelper.h"
+#include "Misc/Paths.h"
+#include "Serialization/JsonReader.h"
+#include "Serialization/JsonSerializer.h"
+#include "Serialization/JsonWriter.h"
 
 namespace
 {
@@ -85,6 +97,134 @@ void FEpicodeFocusedShellModel::Refresh()
 	}
 }
 
+void FEpicodeFocusedShellModel::RefreshAssets()
+{
+	LoadHiddenAssets();
+	Assets.Reset();
+
+	FAssetRegistryModule& AssetRegistryModule =
+		FModuleManager::LoadModuleChecked<FAssetRegistryModule>(TEXT("AssetRegistry"));
+	IAssetRegistry& AssetRegistry = AssetRegistryModule.Get();
+
+	FARFilter Filter;
+	Filter.PackagePaths.Add(FName(*UEpicodeSettings::Get()->ImportContentRoot));
+	Filter.bRecursivePaths = true;
+
+	TArray<FAssetData> AssetDataList;
+	AssetRegistry.GetAssets(Filter, AssetDataList);
+	for (const FAssetData& AssetData : AssetDataList)
+	{
+		const FTopLevelAssetPath ClassPath = AssetData.AssetClassPath;
+		FString Type;
+		if (ClassPath == USkeletalMesh::StaticClass()->GetClassPathName())
+		{
+			Type = TEXT("Character");
+		}
+		else if (ClassPath == UStaticMesh::StaticClass()->GetClassPathName())
+		{
+			Type = TEXT("Prop");
+		}
+		else
+		{
+			continue;
+		}
+
+		const FString AssetPath = AssetData.GetObjectPathString();
+		if (HiddenAssetPaths.Contains(AssetPath))
+		{
+			continue;
+		}
+		FEpicodeFocusedAssetRow Row;
+		Row.Name = AssetData.AssetName.ToString();
+		Row.AssetPath = AssetPath;
+		Row.Type = Type;
+		Assets.Add(MoveTemp(Row));
+	}
+
+	Assets.Sort([](const FEpicodeFocusedAssetRow& Left, const FEpicodeFocusedAssetRow& Right)
+	{
+		return Left.Name < Right.Name;
+	});
+}
+
+namespace
+{
+	FString GetHiddenAssetsPath()
+	{
+		return FPaths::Combine(
+			FPaths::ProjectSavedDir(), TEXT("Epicode/Editor/asset-library.json"));
+	}
+}
+
+void FEpicodeFocusedShellModel::LoadHiddenAssets()
+{
+	if (bHiddenAssetsLoaded)
+	{
+		return;
+	}
+	bHiddenAssetsLoaded = true;
+	HiddenAssetPaths.Reset();
+
+	FString Text;
+	if (!FFileHelper::LoadFileToString(Text, *GetHiddenAssetsPath()))
+	{
+		return;
+	}
+	TSharedPtr<FJsonObject> Root;
+	const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Text);
+	if (!FJsonSerializer::Deserialize(Reader, Root) || !Root.IsValid())
+	{
+		return;
+	}
+	const TArray<TSharedPtr<FJsonValue>>* Hidden = nullptr;
+	if (!Root->TryGetArrayField(TEXT("hidden"), Hidden) || !Hidden)
+	{
+		return;
+	}
+	for (const TSharedPtr<FJsonValue>& Value : *Hidden)
+	{
+		if (Value.IsValid() && Value->Type == EJson::String)
+		{
+			HiddenAssetPaths.Add(Value->AsString());
+		}
+	}
+}
+
+void FEpicodeFocusedShellModel::SaveHiddenAssets() const
+{
+	TSharedPtr<FJsonObject> Root = MakeShared<FJsonObject>();
+	Root->SetNumberField(TEXT("version"), 1);
+	TArray<TSharedPtr<FJsonValue>> Hidden;
+	for (const FString& AssetPath : HiddenAssetPaths)
+	{
+		Hidden.Add(MakeShared<FJsonValueString>(AssetPath));
+	}
+	Root->SetArrayField(TEXT("hidden"), Hidden);
+
+	const FString Path = GetHiddenAssetsPath();
+	IFileManager::Get().MakeDirectory(*FPaths::GetPath(Path), true);
+	FString Text;
+	const TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&Text);
+	FJsonSerializer::Serialize(Root.ToSharedRef(), Writer);
+	FFileHelper::SaveStringToFile(Text, *Path);
+}
+
+void FEpicodeFocusedShellModel::HideAsset(const FString& AssetPath)
+{
+	LoadHiddenAssets();
+	HiddenAssetPaths.Add(AssetPath);
+	SaveHiddenAssets();
+	RefreshAssets();
+}
+
+void FEpicodeFocusedShellModel::RestoreHiddenAssets()
+{
+	bHiddenAssetsLoaded = true;
+	HiddenAssetPaths.Reset();
+	SaveHiddenAssets();
+	RefreshAssets();
+}
+
 FEpicodeCommandResult FEpicodeFocusedShellModel::Execute(
 	const FString& Method, const TSharedPtr<FJsonObject>& Params)
 {
@@ -146,4 +286,15 @@ FString FEpicodeFocusedShellModel::GetSignature() const
 		bDirty ? 1 : 0,
 		*SelectedEntityId.ToString(EGuidFormats::Digits),
 		Scenes.Num());
+}
+
+FString FEpicodeFocusedShellModel::GetAssetSignature() const
+{
+	FString Signature;
+	for (const FEpicodeFocusedAssetRow& Asset : Assets)
+	{
+		Signature += Asset.AssetPath;
+		Signature += TEXT("|");
+	}
+	return Signature;
 }

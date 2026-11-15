@@ -11,6 +11,7 @@ public class EpicodeEditorShell : ModuleRules
 			"Core",
 			"CoreUObject",
 			"Engine",
+			"AssetRegistry",
 			"ApplicationCore",
 			"InputCore",
 			"Slate",
@@ -23,6 +24,7 @@ public class EpicodeEditorShell : ModuleRules
 			"AppFramework",
 			"ToolMenus",
 			"Projects",
+			"DesktopPlatform",
 			"Json",
 			"JsonUtilities"
 		});

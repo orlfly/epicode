@@ -41,7 +41,13 @@ public:
 	void CloseMenuForSmokeTest(const FString& Label);
 	bool ProcessShortcutForSmokeTest(const FKey& Key, bool bCtrl = false, bool bShift = false);
 	bool RetryViewportForSmokeTest();
+	bool ImportSceneFromFileForSmokeTest(const FString& SourcePath);
+	bool ImportAssetForSmokeTest(const FString& SourcePath, const FString& Kind);
+	bool PlaceFirstAssetForSmokeTest(const FString& Type);
+	bool HideFirstAssetForSmokeTest(const FString& Type);
+	bool RestoreHiddenAssetsForSmokeTest();
 	int32 GetEntityCountForSmokeTest() const { return Model.GetEntityCount(); }
+	int32 GetAssetCountForSmokeTest() const { return Model.GetAssets().Num(); }
 	FString GetWidgetModeForSmokeTest() const { return GetTransformModeLabel(); }
 	void FocusViewport();
 	void SelectFirstActorForSmokeTest();
@@ -65,6 +71,8 @@ private:
 	void BuildRecentSceneMenu(FMenuBuilder& MenuBuilder);
 	void BuildCharacterMenu(FMenuBuilder& MenuBuilder);
 	void BuildPropMenu(FMenuBuilder& MenuBuilder);
+	void BuildAssetPlaceMenu(FMenuBuilder& MenuBuilder, FString Type);
+	void BuildAssetDeleteMenu(FMenuBuilder& MenuBuilder, FString Type);
 	void BuildLightMenu(FMenuBuilder& MenuBuilder);
 	void BuildCameraMenu(FMenuBuilder& MenuBuilder);
 	void BuildLibraryMenu(FMenuBuilder& MenuBuilder);
@@ -86,6 +94,7 @@ private:
 	void BindFocusedShortcuts();
 	FString GetLayoutPath() const;
 	void RefreshObjectList();
+	void RefreshAssetList();
 	void RefreshSceneList();
 	void RefreshStatus();
 	void SyncSelectionFromViewport();
@@ -101,6 +110,13 @@ private:
 	void CloseScene();
 	void OpenSceneById(FString InSceneId);
 	void DeleteSceneById(FString InSceneId);
+	void ImportSceneFromFile();
+	bool ImportSceneFile(const FString& SourcePath, FString& OutSceneId, FString& OutError);
+	void ImportAssetIntoLibrary(const FString& Kind);
+	bool SaveImportedAssets(const FEpicodeCommandResult& Result, FString& OutError);
+	void RemoveImportedSceneEntities(const FEpicodeCommandResult& Result, bool bSceneWasClean);
+	bool PlaceAsset(const FString& AssetPath, const FString& Type);
+	FEpicodeTransform GetPlacementTransform() const;
 	void DeleteSelectedEntity();
 	void DeleteSelectedEntityOfType(EEpicodeEntityType Type);
 	void CreateLight(const FString& LightType);
@@ -134,6 +150,7 @@ private:
 	TSharedPtr<SEditableTextBox> SceneNameInput;
 	TSharedPtr<SVerticalBox> ObjectListBox;
 	TSharedPtr<SVerticalBox> SceneListBox;
+	TSharedPtr<SVerticalBox> AssetListBox;
 	TSharedPtr<SVerticalBox> ChatHistoryBox;
 	TSharedPtr<SScrollBox> ChatScroll;
 	TMap<FString, TSharedPtr<class SComboButton>> MenuCombos;
@@ -151,6 +168,7 @@ private:
 	FString ObjectSearch;
 	FString TypeFilter = TEXT("All");
 	FString LastSignature;
+	FString LastAssetSignature;
 	TArray<FString> RecentSceneIds;
 	FVector SavedCameraLocation = FVector::ZeroVector;
 	FRotator SavedCameraRotation = FRotator::ZeroRotator;
