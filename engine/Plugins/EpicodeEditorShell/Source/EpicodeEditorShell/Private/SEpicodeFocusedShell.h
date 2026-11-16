@@ -42,7 +42,10 @@ public:
 	TArray<FString> GetMenuLabelsForSmokeTest() const;
 	bool ProcessShortcutForSmokeTest(const FKey& Key, bool bCtrl = false, bool bShift = false);
 	bool RetryViewportForSmokeTest();
-	bool ImportSceneFromFileForSmokeTest(const FString& SourcePath);
+	bool ImportSceneFromFileForSmokeTest(
+		const FString& SourcePath, bool bAssignNewId = false);
+	FString GetLastImportedSceneIdForSmokeTest() const { return LastImportedSceneId; }
+	FString GetSelectedLibrarySceneIdForSmokeTest() const { return SelectedLibrarySceneId; }
 	bool ImportAssetForSmokeTest(const FString& SourcePath, const FString& Kind);
 	bool PlaceFirstAssetForSmokeTest(const FString& Type);
 	bool HideFirstAssetForSmokeTest(const FString& Type);
@@ -173,7 +176,9 @@ private:
 	void OpenSceneById(FString InSceneId);
 	void DeleteSceneById(FString InSceneId);
 	void ImportSceneFromFile();
-	bool ImportSceneFile(const FString& SourcePath, FString& OutSceneId, FString& OutError);
+	bool ImportSceneFile(
+		const FString& SourcePath, FString& OutSceneId, FString& OutError,
+		bool bAssignNewId = false);
 	void ImportAssetIntoLibrary(const FString& Kind);
 	bool SaveImportedAssets(const FEpicodeCommandResult& Result, FString& OutError);
 	void RemoveImportedSceneEntities(const FEpicodeCommandResult& Result, bool bSceneWasClean);
@@ -240,6 +245,8 @@ private:
 	FString AssetTypeFilter = TEXT("All");
 	FString SceneSearch;
 	FString SceneTagFilter;
+	FString LastImportedSceneId;
+	FString SelectedLibrarySceneId;
 	FString LastSignature;
 	FString LastAssetSignature;
 	FString LastInspectorSignature;

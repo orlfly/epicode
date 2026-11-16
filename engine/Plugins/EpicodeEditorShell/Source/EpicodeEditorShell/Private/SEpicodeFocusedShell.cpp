@@ -3736,9 +3736,10 @@ void SEpicodeFocusedShell::RefreshSceneList()
 		{
 			continue;
 		}
+		const bool bLibrarySelected = Row.Id == SelectedLibrarySceneId;
 		const FString Label = FString::Printf(
 			TEXT("%s %s%s"),
-			Row.bCurrent ? TEXT("●") : TEXT("○"),
+			bLibrarySelected ? TEXT("◆") : (Row.bCurrent ? TEXT("●") : TEXT("○")),
 			*Row.Name,
 			Row.bCurrent ? TEXT(" · 当前") : TEXT(""));
 		const FEpicodeLibraryEntry* Entry = Model.FindLibraryScene(Row.Id);
@@ -3797,7 +3798,10 @@ void SEpicodeFocusedShell::RefreshSceneList()
 										SNew(STextBlock)
 											.Text(FText::FromString(Label))
 											.Font(FAppStyle::Get().GetFontStyle("SmallFont"))
-											.ColorAndOpacity(Row.bCurrent ? AccentTextColor() : PanelTextColor())
+											.ColorAndOpacity(
+												Row.bCurrent || bLibrarySelected
+													? AccentTextColor()
+													: PanelTextColor())
 									]
 								+ SVerticalBox::Slot()
 									.AutoHeight()
@@ -4059,6 +4063,7 @@ void SEpicodeFocusedShell::OpenSceneById(FString InSceneId)
 	const FEpicodeCommandResult Result = Model.Execute(TEXT("scene.open"), Params);
 	if (Result.bSuccess)
 	{
+		SelectedLibrarySceneId = InSceneId;
 		MarkRecentScene(InSceneId);
 	}
 	RefreshUi();
@@ -4100,28 +4105,32 @@ void SEpicodeFocusedShell::ImportSceneFromFile()
 	}
 
 	FEpicodeSceneLibraryEntry Existing;
+	bool bAssignNewId = false;
 	if (FEpicodeSceneLibrary::Find(
 		UEpicodeSettings::Get()->GetSceneRootPath(), Probe.SceneId, Existing))
 	{
 		const EAppReturnType::Type Answer = FMessageDialog::Open(
-			EAppMsgType::YesNo,
+			EAppMsgType::YesNoCancel,
 			FText::FromString(FString::Printf(
-				TEXT("场景 %s 已存在，覆盖？"), *Probe.Name)));
-		if (Answer != EAppReturnType::Yes)
+				TEXT("场景 %s 已存在。\n\n是：覆盖原场景\n否：另存为副本\n取消：不导入"),
+				*Probe.Name)));
+		if (Answer == EAppReturnType::Cancel)
 		{
 			return;
 		}
+		bAssignNewId = Answer == EAppReturnType::No;
 	}
 
 	FString SceneId;
 	FString Error;
-	if (!ImportSceneFile(SourcePath, SceneId, Error))
+	if (!ImportSceneFile(SourcePath, SceneId, Error, bAssignNewId))
 	{
 		FMessageDialog::Open(EAppMsgType::Ok, FText::FromString(Error));
 		return;
 	}
 
 	MarkRecentScene(SceneId);
+	SelectedLibrarySceneId = SceneId;
 	RefreshUi();
 	AddChatLine(TEXT("系统"), FString::Printf(TEXT("已导入场景 %s"), *Probe.Name));
 
@@ -4134,7 +4143,8 @@ void SEpicodeFocusedShell::ImportSceneFromFile()
 }
 
 bool SEpicodeFocusedShell::ImportSceneFile(
-	const FString& SourcePath, FString& OutSceneId, FString& OutError)
+	const FString& SourcePath, FString& OutSceneId, FString& OutError,
+	bool bAssignNewId)
 {
 	FEpicodeSceneDocument Document;
 	if (!FEpicodeSceneLibrary::Load(SourcePath, Document, OutError))
@@ -4143,9 +4153,15 @@ bool SEpicodeFocusedShell::ImportSceneFile(
 	}
 
 	FGuid ParsedId;
-	if (Document.SceneId.IsEmpty() || !FGuid::Parse(Document.SceneId, ParsedId))
+	if (bAssignNewId
+		|| Document.SceneId.IsEmpty()
+		|| !FGuid::Parse(Document.SceneId, ParsedId))
 	{
 		Document.SceneId = FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphens);
+		if (bAssignNewId && !Document.Name.EndsWith(TEXT("（副本）")))
+		{
+			Document.Name += TEXT("（副本）");
+		}
 	}
 	if (Document.Name.IsEmpty())
 	{
@@ -4166,17 +4182,21 @@ bool SEpicodeFocusedShell::ImportSceneFile(
 	return true;
 }
 
-bool SEpicodeFocusedShell::ImportSceneFromFileForSmokeTest(const FString& SourcePath)
+bool SEpicodeFocusedShell::ImportSceneFromFileForSmokeTest(
+	const FString& SourcePath, bool bAssignNewId)
 {
 	FString SceneId;
 	FString Error;
-	if (!ImportSceneFile(SourcePath, SceneId, Error))
+	if (!ImportSceneFile(SourcePath, SceneId, Error, bAssignNewId))
 	{
+		LastImportedSceneId.Reset();
 		Model.SetLastMessage(FString::Printf(TEXT("场景导入失败：%s"), *Error));
 		RefreshStatus();
 		return false;
 	}
 
+	LastImportedSceneId = SceneId;
+	SelectedLibrarySceneId = SceneId;
 	MarkRecentScene(SceneId);
 	RefreshUi();
 	AddChatLine(TEXT("系统"), FString::Printf(TEXT("已导入场景 %s"), *SceneId));
@@ -4464,7 +4484,11 @@ void SEpicodeFocusedShell::DeleteSceneById(FString InSceneId)
 
 	TSharedPtr<FJsonObject> Params = MakeShared<FJsonObject>();
 	Params->SetStringField(TEXT("sceneId"), InSceneId);
-	Model.Execute(TEXT("scene.delete"), Params);
+	const FEpicodeCommandResult Result = Model.Execute(TEXT("scene.delete"), Params);
+	if (Result.bSuccess && SelectedLibrarySceneId == InSceneId)
+	{
+		SelectedLibrarySceneId.Reset();
+	}
 	RefreshUi();
 }
 

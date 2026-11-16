@@ -417,4 +417,103 @@ bool FEpicodeEditorShellLibraryPanelTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FEpicodeEditorShellSceneImportTest,
+	"Epicode.EditorShell.SceneImport",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FEpicodeEditorShellSceneImportTest::RunTest(const FString& Parameters)
+{
+	FScopedEditorShellLayout LayoutGuard;
+	UEpicodeSceneSubsystem* Scene = GetTestScene();
+	if (!Scene)
+	{
+		AddError(TEXT("Epicode scene subsystem is required."));
+		return false;
+	}
+
+	FString Error;
+	if (Scene->HasScene())
+	{
+		Scene->CloseScene(true, Error);
+	}
+
+	const FString FixturePath = FPaths::Combine(
+		FPaths::ProjectDir(), TEXT("Tests/Fixtures/scene-import.json"));
+	TestTrue(TEXT("scene import fixture exists"), IFileManager::Get().FileExists(*FixturePath));
+
+	FString FirstId;
+	FString CopyId;
+	{
+		TSharedRef<SEpicodeFocusedShell> Shell = SNew(SEpicodeFocusedShell);
+
+		const FString InvalidRoot = FPaths::Combine(
+			FPaths::ProjectSavedDir(),
+			TEXT("Epicode/Tests/SceneImport"),
+			FGuid::NewGuid().ToString(EGuidFormats::Digits));
+		const FString InvalidPath = FPaths::Combine(InvalidRoot, TEXT("invalid.json"));
+		IFileManager::Get().MakeDirectory(*InvalidRoot, true);
+		FFileHelper::SaveStringToFile(
+			TEXT("{\"schemaVersion\":999,\"sceneId\":\"01A1DDAA-0000-7000-8000-000000000099\",\"name\":\"Bad\"}"),
+			*InvalidPath);
+		TestFalse(
+			TEXT("unsupported schema rejected"),
+			Shell->ImportSceneFromFileForSmokeTest(InvalidPath));
+		TestTrue(
+			TEXT("failed import has no selection"),
+			Shell->GetLastImportedSceneIdForSmokeTest().IsEmpty());
+		IFileManager::Get().DeleteDirectory(*InvalidRoot, false, true);
+
+		TestTrue(
+			TEXT("scene imported"),
+			Shell->ImportSceneFromFileForSmokeTest(FixturePath));
+		FirstId = Shell->GetLastImportedSceneIdForSmokeTest();
+		TestFalse(TEXT("first scene id"), FirstId.IsEmpty());
+		TestEqual(
+			TEXT("imported scene selected in library"),
+			Shell->GetSelectedLibrarySceneIdForSmokeTest(),
+			FirstId);
+
+		TestTrue(
+			TEXT("scene imported as copy"),
+			Shell->ImportSceneFromFileForSmokeTest(FixturePath, true));
+		CopyId = Shell->GetLastImportedSceneIdForSmokeTest();
+		TestFalse(TEXT("copy scene id"), CopyId.IsEmpty());
+		TestTrue(TEXT("copy uses a new scene id"), CopyId != FirstId);
+		TestEqual(
+			TEXT("copy selected in library"),
+			Shell->GetSelectedLibrarySceneIdForSmokeTest(),
+			CopyId);
+
+		const TArray<FEpicodeSceneLibraryEntry> Scenes = Scene->ListScenes();
+		TestTrue(
+			TEXT("original scene in library"),
+			Scenes.ContainsByPredicate([&FirstId](const FEpicodeSceneLibraryEntry& Entry)
+			{
+				return Entry.SceneId == FirstId;
+			}));
+		TestTrue(
+			TEXT("copy in library"),
+			Scenes.ContainsByPredicate([&CopyId](const FEpicodeSceneLibraryEntry& Entry)
+			{
+				return Entry.SceneId == CopyId;
+			}));
+	}
+
+	for (const FString& SceneId : { FirstId, CopyId })
+	{
+		if (SceneId.IsEmpty())
+		{
+			continue;
+		}
+		FString TrashPath;
+		FString DeleteError;
+		if (Scene->DeleteScene(SceneId, TrashPath, DeleteError))
+		{
+			IFileManager::Get().DeleteDirectory(*TrashPath, false, true);
+		}
+	}
+	return true;
+}
+
 #endif

@@ -1,0 +1,84 @@
+{
+	"schemaVersion": 2,
+	"sceneId": "01A1DDAA-0000-7000-8000-000000000001",
+	"name": "Imported Scene Test",
+	"levelPath": "/Game/Epicode/Scenes/ImportedSceneTest",
+	"activeCameraId": "01A1DDAA-0000-7000-8000-000000000002",
+	"environment":
+	{
+		"timeOfDay": 15,
+		"preset": "clear",
+		"fogDensity": 0.02,
+		"cloudCoverage": 0.29999999999999999,
+		"exposureCompensation": 0,
+		"bloomIntensity": 0.67500000000000004,
+		"lut": ""
+	},
+	"runtime":
+	{
+		"agent":
+		{
+			"controllableCharacterIds": [],
+			"allowedActions": [],
+			"spawnPoints": []
+		},
+		"viewer":
+		{
+			"cameraIds": [],
+			"defaultCameraId": "",
+			"spawnTransform":
+			{
+				"location": [
+					0,
+					0,
+					0
+				],
+				"rotation": [
+					0,
+					0,
+					0
+				],
+				"scale": [
+					1,
+					1,
+					1
+				]
+			},
+			"showOverlay": true
+		}
+	},
+	"entities": [
+		{
+			"id": "01A1DDAA-0000-7000-8000-000000000002",
+			"type": "camera",
+			"name": "Default Camera",
+			"visible": true,
+			"tags": [],
+			"transform":
+			{
+				"location": [
+					0,
+					-600,
+					200
+				],
+				"rotation": [
+					0,
+					0,
+					0
+				],
+				"scale": [
+					1,
+					1,
+					1
+				]
+			},
+			"camera":
+			{
+				"fieldOfView": 35,
+				"focalLength": 50,
+				"aperture": 2.7999999999999998,
+				"focusDistance": 600
+			}
+		}
+	]
+}
