@@ -33,6 +33,7 @@ private:
 	bool HandleViewportRetrySmokeTick(float DeltaTime);
 	bool HandleSceneImportSmokeTick(float DeltaTime);
 	bool HandleAssetLibrarySmokeTick(float DeltaTime);
+	bool HandleInspectorSmokeTick(float DeltaTime);
 	bool HandleScreenshotTick(float DeltaTime);
 	void HandleShellClosed(const TSharedRef<SWindow>& Window);
 	void HandleEditorPreExit();
@@ -53,6 +54,7 @@ private:
 	FTSTicker::FDelegateHandle ViewportRetrySmokeHandle;
 	FTSTicker::FDelegateHandle SceneImportSmokeHandle;
 	FTSTicker::FDelegateHandle AssetLibrarySmokeHandle;
+	FTSTicker::FDelegateHandle InspectorSmokeHandle;
 	FTSTicker::FDelegateHandle ScreenshotHandle;
 	int32 GizmoSmokeStep = 0;
 	int32 WorkbenchSmokeStep = 0;
@@ -62,6 +64,7 @@ private:
 	FString AssetLibrarySmokePath;
 	FString AssetLibrarySmokeCharacterPath;
 	int32 AssetLibrarySmokeStep = 0;
+	int32 InspectorSmokeStep = 0;
 	double RetryStartTime = 0.0;
 	bool bFocusedModeRequested = false;
 	bool bShellCreationAttempted = false;

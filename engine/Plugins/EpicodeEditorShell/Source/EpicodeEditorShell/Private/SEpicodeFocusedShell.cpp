@@ -41,9 +41,11 @@
 #include "UObject/Package.h"
 #include "UObject/SavePackage.h"
 #include "Widgets/Input/SButton.h"
+#include "Widgets/Input/SCheckBox.h"
 #include "Widgets/Input/SComboButton.h"
 #include "Widgets/Input/SEditableTextBox.h"
 #include "Widgets/Input/SMultiLineEditableTextBox.h"
+#include "Widgets/Input/SSpinBox.h"
 #include "Widgets/Layout/SBorder.h"
 #include "Widgets/Layout/SBox.h"
 #include "Widgets/Layout/SScrollBox.h"
@@ -142,6 +144,13 @@ void SEpicodeFocusedShell::Construct(const FArguments& InArgs)
 	RefreshObjectList();
 	RefreshAssetList();
 	RefreshSceneList();
+	LastInspectorSignature = FString::Printf(
+		TEXT("%s|%s|%d|%d"),
+		*LastSignature,
+		*Model.GetActiveCameraId().ToString(EGuidFormats::Digits),
+		bInspectorWorldSpace ? 1 : 0,
+		bInspectorSnap ? 1 : 0);
+	RefreshInspector();
 	RefreshStatus();
 	AddChatLine(TEXT("系统"), TEXT("对话后端尚未配置；场景命令、对象列表和视口可用。"));
 }
@@ -1458,6 +1467,213 @@ TSharedRef<SWidget> SEpicodeFocusedShell::MakePanelHeader(
 			];
 }
 
+TSharedRef<SWidget> SEpicodeFocusedShell::MakeInspectorRow(
+	const FString& Label, TSharedRef<SWidget> Value)
+{
+	return SNew(SHorizontalBox)
+		+ SHorizontalBox::Slot()
+			.AutoWidth()
+			.VAlign(VAlign_Center)
+			[
+				SNew(SBox)
+					.WidthOverride(62.0f)
+					[
+						SNew(STextBlock)
+							.Text(FText::FromString(Label))
+							.Font(FAppStyle::Get().GetFontStyle("SmallFont"))
+							.ColorAndOpacity(MutedTextColor())
+					]
+			]
+		+ SHorizontalBox::Slot()
+			.FillWidth(1.0f)
+			.VAlign(VAlign_Center)
+			.Padding(FMargin(2.0f, 1.0f))
+			[
+				Value
+			];
+}
+
+TSharedRef<SWidget> SEpicodeFocusedShell::MakeInspectorSection(const FString& Title)
+{
+	return SNew(SBox)
+		.Padding(FMargin(0.0f, 7.0f, 0.0f, 2.0f))
+		[
+			SNew(STextBlock)
+				.Text(FText::FromString(Title))
+				.Font(FAppStyle::Get().GetFontStyle("SmallFont"))
+				.ColorAndOpacity(AccentTextColor())
+		];
+}
+
+TSharedRef<SWidget> SEpicodeFocusedShell::MakeInspectorSpin(
+	double Value, double MinValue, double MaxValue, double Delta,
+	TFunction<void(double)> OnCommit, const FString& ToolTip)
+{
+	return SNew(SSpinBox<double>)
+		.Value(Value)
+		.MinValue(MinValue)
+		.MaxValue(MaxValue)
+		.Delta(Delta)
+		.MinFractionalDigits(0)
+		.MaxFractionalDigits(2)
+		.Font(FAppStyle::Get().GetFontStyle("SmallFont"))
+		.ToolTipText(FText::FromString(ToolTip))
+		.OnValueCommitted_Lambda([OnCommit = MoveTemp(OnCommit)](
+			double NewValue, ETextCommit::Type)
+		{
+			OnCommit(NewValue);
+		});
+}
+
+TSharedRef<SWidget> SEpicodeFocusedShell::MakeInspectorVector(
+	const FString& Label, const FVector& Value, double MinValue, double MaxValue, double Delta,
+	TFunction<void(const FVector&)> OnCommit,
+	FString AxisX, FString AxisY, FString AxisZ)
+{
+	FVector Current = Value;
+	auto MakeAxis = [this, &Current, MinValue, MaxValue, Delta, OnCommit](
+		const TCHAR* Axis, double AxisValue, int32 AxisIndex)
+	{
+		return SNew(SHorizontalBox)
+			+ SHorizontalBox::Slot()
+				.AutoWidth()
+				.VAlign(VAlign_Center)
+				[
+					SNew(STextBlock)
+						.Text(FText::FromString(Axis))
+						.Font(FAppStyle::Get().GetFontStyle("SmallFont"))
+						.ColorAndOpacity(MutedTextColor())
+				]
+			+ SHorizontalBox::Slot()
+				.FillWidth(1.0f)
+				.Padding(FMargin(1.0f, 0.0f))
+				[
+					MakeInspectorSpin(
+						AxisValue, MinValue, MaxValue, Delta,
+						[Current, OnCommit, AxisIndex](double NewValue) mutable
+						{
+							Current[AxisIndex] = NewValue;
+							OnCommit(Current);
+						},
+						Axis)
+				];
+	};
+
+	return SNew(SHorizontalBox)
+		+ SHorizontalBox::Slot()
+			.AutoWidth()
+			.VAlign(VAlign_Center)
+			[
+				SNew(SBox)
+					.WidthOverride(62.0f)
+					[
+						SNew(STextBlock)
+							.Text(FText::FromString(Label))
+							.Font(FAppStyle::Get().GetFontStyle("SmallFont"))
+							.ColorAndOpacity(MutedTextColor())
+					]
+			]
+		+ SHorizontalBox::Slot()
+			.FillWidth(1.0f)
+			[
+				SNew(SHorizontalBox)
+				+ SHorizontalBox::Slot()
+					.FillWidth(1.0f)
+					[
+						MakeAxis(*AxisX, Current.X, 0)
+					]
+				+ SHorizontalBox::Slot()
+					.FillWidth(1.0f)
+					[
+						MakeAxis(*AxisY, Current.Y, 1)
+					]
+				+ SHorizontalBox::Slot()
+					.FillWidth(1.0f)
+					[
+						MakeAxis(*AxisZ, Current.Z, 2)
+					]
+			];
+}
+
+TSharedRef<SWidget> SEpicodeFocusedShell::MakeInspectorRotator(
+	const FString& Label, const FRotator& Value, TFunction<void(const FRotator&)> OnCommit)
+{
+	FRotator Current = Value;
+	auto MakeAxis = [this, &Current, OnCommit](
+		const TCHAR* Axis, double AxisValue, int32 AxisIndex)
+	{
+		return SNew(SHorizontalBox)
+			+ SHorizontalBox::Slot()
+				.AutoWidth()
+				.VAlign(VAlign_Center)
+				[
+					SNew(STextBlock)
+						.Text(FText::FromString(Axis))
+						.Font(FAppStyle::Get().GetFontStyle("SmallFont"))
+						.ColorAndOpacity(MutedTextColor())
+				]
+			+ SHorizontalBox::Slot()
+				.FillWidth(1.0f)
+				.Padding(FMargin(1.0f, 0.0f))
+				[
+					MakeInspectorSpin(
+						AxisValue, -36000.0, 36000.0, 1.0,
+						[Current, OnCommit, AxisIndex](double NewValue) mutable
+						{
+							if (AxisIndex == 0)
+							{
+								Current.Pitch = NewValue;
+							}
+							else if (AxisIndex == 1)
+							{
+								Current.Yaw = NewValue;
+							}
+							else
+							{
+								Current.Roll = NewValue;
+							}
+							OnCommit(Current);
+						},
+						Axis)
+				];
+	};
+
+	return SNew(SHorizontalBox)
+		+ SHorizontalBox::Slot()
+			.AutoWidth()
+			.VAlign(VAlign_Center)
+			[
+				SNew(SBox)
+					.WidthOverride(62.0f)
+					[
+						SNew(STextBlock)
+							.Text(FText::FromString(Label))
+							.Font(FAppStyle::Get().GetFontStyle("SmallFont"))
+							.ColorAndOpacity(MutedTextColor())
+					]
+			]
+		+ SHorizontalBox::Slot()
+			.FillWidth(1.0f)
+			[
+				SNew(SHorizontalBox)
+				+ SHorizontalBox::Slot()
+					.FillWidth(1.0f)
+					[
+						MakeAxis(TEXT("P"), Current.Pitch, 0)
+					]
+				+ SHorizontalBox::Slot()
+					.FillWidth(1.0f)
+					[
+						MakeAxis(TEXT("Y"), Current.Yaw, 1)
+					]
+				+ SHorizontalBox::Slot()
+					.FillWidth(1.0f)
+					[
+						MakeAxis(TEXT("R"), Current.Roll, 2)
+					]
+			];
+}
+
 TSharedRef<SWidget> SEpicodeFocusedShell::MakeFilterButton(
 	const FString& Label, const FString& Value)
 {
@@ -1747,6 +1963,32 @@ TSharedRef<SWidget> SEpicodeFocusedShell::BuildChatPanel()
 				.Padding(FMargin(0.0f, 0.0f, 0.0f, 4.0f))
 				[
 					MakePanelHeader(
+						TEXT("检查器"),
+						SAssignNew(InspectorTypeText, STextBlock)
+							.Font(FAppStyle::Get().GetFontStyle("SmallFont"))
+							.ColorAndOpacity(MutedTextColor())
+							.Text(LOCTEXT("NoInspectorSelection", "无选择")))
+				]
+			+ SVerticalBox::Slot()
+				.FillHeight(0.55f)
+				.Padding(FMargin(0.0f, 0.0f, 0.0f, 6.0f))
+				[
+					SNew(SBorder)
+						.BorderImage(FAppStyle::Get().GetBrush("Brushes.Recessed"))
+						.Padding(FMargin(4.0f))
+						[
+							SNew(SScrollBox)
+							+ SScrollBox::Slot()
+								[
+									SAssignNew(InspectorBox, SVerticalBox)
+								]
+						]
+				]
+			+ SVerticalBox::Slot()
+				.AutoHeight()
+				.Padding(FMargin(0.0f, 0.0f, 0.0f, 4.0f))
+				[
+					MakePanelHeader(
 						TEXT("对话"),
 						SNew(SHorizontalBox)
 						+ SHorizontalBox::Slot()
@@ -1762,7 +2004,7 @@ TSharedRef<SWidget> SEpicodeFocusedShell::BuildChatPanel()
 							])
 				]
 			+ SVerticalBox::Slot()
-				.FillHeight(1.0f)
+				.FillHeight(0.45f)
 				[
 					SNew(SBorder)
 						.BorderImage(FAppStyle::Get().GetBrush("Brushes.Recessed"))
@@ -1969,6 +2211,17 @@ void SEpicodeFocusedShell::RefreshUi()
 		RefreshObjectList();
 		RefreshSceneList();
 	}
+	const FString InspectorSignature = FString::Printf(
+		TEXT("%s|%s|%d|%d"),
+		*Signature,
+		*Model.GetActiveCameraId().ToString(EGuidFormats::Digits),
+		bInspectorWorldSpace ? 1 : 0,
+		bInspectorSnap ? 1 : 0);
+	if (InspectorSignature != LastInspectorSignature)
+	{
+		LastInspectorSignature = InspectorSignature;
+		RefreshInspector();
+	}
 	RefreshStatus();
 
 	const FString AssetSignature = Model.GetAssetSignature();
@@ -2129,6 +2382,922 @@ void SEpicodeFocusedShell::RefreshAssetList()
 	}
 }
 
+void SEpicodeFocusedShell::RefreshInspector()
+{
+	if (!InspectorBox.IsValid())
+	{
+		return;
+	}
+
+	InspectorBox->ClearChildren();
+	InspectorSnapGrid = FVector(FMath::Max(1.0f, GEditor ? GEditor->GetGridSize() : 10.0f));
+
+	const FEpicodeEntityRecord* Record = Model.GetSelectedEntityRecord();
+	if (!Record)
+	{
+		if (InspectorTypeText.IsValid())
+		{
+			InspectorTypeText->SetText(LOCTEXT("NoInspectorSelection", "无选择"));
+		}
+		InspectorBox->AddSlot()
+			.AutoHeight()
+			.Padding(FMargin(4.0f, 8.0f))
+			[
+				SNew(STextBlock)
+					.Text(LOCTEXT("InspectorHint", "在对象列表或视口中选择一个实体以编辑属性"))
+					.Font(FAppStyle::Get().GetFontStyle("SmallFont"))
+					.ColorAndOpacity(MutedTextColor())
+					.AutoWrapText(true)
+			];
+		return;
+	}
+
+	const FString TypeLabel = Model.FindEntity(Record->Id)
+		? Model.FindEntity(Record->Id)->TypeLabel
+		: Record->GetTypeName();
+	if (InspectorTypeText.IsValid())
+	{
+		InspectorTypeText->SetText(FText::FromString(TypeLabel));
+	}
+
+	TSharedPtr<FJsonObject> Data = Record->Data.IsValid()
+		? Record->Data
+		: MakeShared<FJsonObject>();
+	auto GetNumber = [&Data](const TCHAR* Field, double DefaultValue)
+	{
+		double Value = DefaultValue;
+		Data->TryGetNumberField(Field, Value);
+		return Value;
+	};
+	auto GetBool = [&Data](const TCHAR* Field, bool bDefaultValue)
+	{
+		bool bValue = bDefaultValue;
+		Data->TryGetBoolField(Field, bValue);
+		return bValue;
+	};
+	auto GetString = [&Data](const TCHAR* Field, const FString& DefaultValue)
+	{
+		FString Value = DefaultValue;
+		Data->TryGetStringField(Field, Value);
+		return Value;
+	};
+	auto GetColor = [&Data]()
+	{
+		const TArray<TSharedPtr<FJsonValue>>* Values = nullptr;
+		if (Data->TryGetArrayField(TEXT("color"), Values) && Values && Values->Num() >= 3)
+		{
+			return FLinearColor(
+				(*Values)[0]->AsNumber(),
+				(*Values)[1]->AsNumber(),
+				(*Values)[2]->AsNumber(),
+				Values->Num() > 3 ? (*Values)[3]->AsNumber() : 1.0f);
+		}
+		return FLinearColor::White;
+	};
+
+	InspectorBox->AddSlot()
+		.AutoHeight()
+		[
+			MakeInspectorSection(TEXT("通用"))
+		];
+	InspectorBox->AddSlot()
+		.AutoHeight()
+		[
+			MakeInspectorRow(
+				TEXT("名称"),
+				SNew(SEditableTextBox)
+					.Text(FText::FromString(Record->Name))
+					.Font(FAppStyle::Get().GetFontStyle("SmallFont"))
+					.SelectAllTextWhenFocused(true)
+					.OnTextCommitted_Lambda([this](const FText& NewText, ETextCommit::Type)
+					{
+						if (!NewText.IsEmpty())
+						{
+							ApplySelectedName(NewText.ToString());
+						}
+					}))
+		];
+	InspectorBox->AddSlot()
+		.AutoHeight()
+		[
+			MakeInspectorRow(
+				TEXT("可见"),
+				SNew(SCheckBox)
+					.IsChecked(Record->bVisible)
+					.OnCheckStateChanged_Lambda([this](ECheckBoxState NewState)
+					{
+						ApplySelectedVisibility(NewState == ECheckBoxState::Checked);
+					}))
+		];
+
+	InspectorBox->AddSlot()
+		.AutoHeight()
+		[
+			MakeInspectorSection(TEXT("变换"))
+		];
+
+	auto MakeSpaceButton = [this](const TCHAR* Label, bool bWorld)
+	{
+		return SNew(SButton)
+			.ButtonStyle(FAppStyle::Get(), "Menu.Button")
+			.ContentPadding(FMargin(6.0f, 2.0f))
+			.ButtonColorAndOpacity_Lambda([this, bWorld]()
+			{
+				return bInspectorWorldSpace == bWorld
+					? FLinearColor(0.18f, 0.32f, 0.48f, 1.0f)
+					: FLinearColor(0.0f, 0.0f, 0.0f, 0.0f);
+			})
+			.OnClicked_Lambda([this, bWorld]()
+			{
+				bInspectorWorldSpace = bWorld;
+				LastInspectorSignature.Reset();
+				RefreshInspector();
+				return FReply::Handled();
+			})
+			[
+				SNew(STextBlock)
+					.Text(FText::FromString(Label))
+					.Font(FAppStyle::Get().GetFontStyle("SmallFont"))
+			];
+	};
+
+	InspectorBox->AddSlot()
+		.AutoHeight()
+		[
+			MakeInspectorRow(
+				TEXT("坐标"),
+				SNew(SHorizontalBox)
+				+ SHorizontalBox::Slot()
+					.AutoWidth()
+					[
+						MakeSpaceButton(TEXT("局部"), false)
+					]
+				+ SHorizontalBox::Slot()
+					.AutoWidth()
+					.Padding(FMargin(2.0f, 0.0f))
+					[
+						MakeSpaceButton(TEXT("世界"), true)
+					]
+				+ SHorizontalBox::Slot()
+					.FillWidth(1.0f)
+					.VAlign(VAlign_Center)
+					.Padding(FMargin(4.0f, 0.0f, 0.0f, 0.0f))
+					[
+						SNew(SCheckBox)
+							.IsChecked(bInspectorSnap)
+							.ToolTipText(FText::FromString(FString::Printf(
+								TEXT("按 %.0f 单位吸附位置，旋转按 15 度"), InspectorSnapGrid.X)))
+							.OnCheckStateChanged_Lambda([this](ECheckBoxState NewState)
+							{
+								bInspectorSnap = NewState == ECheckBoxState::Checked;
+								LastInspectorSignature.Reset();
+								RefreshInspector();
+							})
+							[
+								SNew(STextBlock)
+									.Text(LOCTEXT("InspectorSnap", "吸附"))
+									.Font(FAppStyle::Get().GetFontStyle("SmallFont"))
+							]
+					])
+		];
+
+	FEpicodeTransform DisplayTransform = Record->Transform;
+	AActor* Actor = Model.GetSceneSubsystem()
+		? Model.GetSceneSubsystem()->GetEntityActor(Record->Id)
+		: nullptr;
+	if (bInspectorWorldSpace && Actor)
+	{
+		DisplayTransform.Location = Actor->GetActorLocation();
+		DisplayTransform.Rotation = Actor->GetActorRotation();
+		DisplayTransform.Scale = Actor->GetActorScale3D();
+	}
+
+	InspectorBox->AddSlot()
+		.AutoHeight()
+		[
+			MakeInspectorVector(
+				TEXT("位置"), DisplayTransform.Location,
+				-10000000.0, 10000000.0, InspectorSnapGrid.X,
+				[this, DisplayTransform](const FVector& NewLocation) mutable
+				{
+					DisplayTransform.Location = NewLocation;
+					ApplySelectedTransform(DisplayTransform);
+				})
+		];
+	InspectorBox->AddSlot()
+		.AutoHeight()
+		[
+			MakeInspectorRotator(
+				TEXT("旋转"), DisplayTransform.Rotation,
+				[this, DisplayTransform](const FRotator& NewRotation) mutable
+				{
+					DisplayTransform.Rotation = NewRotation;
+					ApplySelectedTransform(DisplayTransform);
+				})
+		];
+	InspectorBox->AddSlot()
+		.AutoHeight()
+		[
+			MakeInspectorVector(
+				TEXT("缩放"), DisplayTransform.Scale,
+				0.001, 10000.0, 0.1,
+				[this, DisplayTransform](const FVector& NewScale) mutable
+				{
+					DisplayTransform.Scale = NewScale;
+					ApplySelectedTransform(DisplayTransform);
+				})
+		];
+
+	if (Record->Type == EEpicodeEntityType::Character)
+	{
+		const FString MeshPath = GetString(TEXT("skeletalMesh"), TEXT(""));
+		const FString AnimationPath = GetString(TEXT("animation"), TEXT(""));
+		const bool bLoop = GetBool(TEXT("loop"), true);
+		const bool bPaused = GetBool(TEXT("paused"), false);
+		const double PlayRate = GetNumber(TEXT("playRate"), 1.0);
+
+		InspectorBox->AddSlot().AutoHeight()[MakeInspectorSection(TEXT("角色"))];
+		InspectorBox->AddSlot().AutoHeight()[
+			MakeInspectorRow(
+				TEXT("骨骼网格"),
+				SNew(STextBlock)
+					.Text(FText::FromString(MeshPath))
+					.ToolTipText(FText::FromString(MeshPath))
+					.Font(FAppStyle::Get().GetFontStyle("SmallFont"))
+					.ColorAndOpacity(MutedTextColor())
+					.AutoWrapText(true))
+		];
+		InspectorBox->AddSlot().AutoHeight()[
+			MakeInspectorRow(
+				TEXT("动画"),
+				SNew(SEditableTextBox)
+					.Text(FText::FromString(AnimationPath))
+					.ToolTipText(LOCTEXT("AnimationPathTip", "动画资产路径"))
+					.Font(FAppStyle::Get().GetFontStyle("SmallFont"))
+					.SelectAllTextWhenFocused(true)
+					.OnTextCommitted_Lambda([this, bLoop, PlayRate](const FText& NewText, ETextCommit::Type)
+					{
+						ApplyCharacterAnimation(NewText.ToString(), bLoop, PlayRate);
+					}))
+		];
+		InspectorBox->AddSlot().AutoHeight()[
+			MakeInspectorRow(
+				TEXT("循环"),
+				SNew(SCheckBox)
+					.IsChecked(bLoop)
+					.OnCheckStateChanged_Lambda([this, AnimationPath, PlayRate](ECheckBoxState NewState)
+					{
+						ApplyCharacterAnimation(
+							AnimationPath, NewState == ECheckBoxState::Checked, PlayRate);
+					}))
+		];
+		InspectorBox->AddSlot().AutoHeight()[
+			MakeInspectorRow(
+				TEXT("速度"),
+				MakeInspectorSpin(
+					PlayRate, 0.0, 20.0, 0.1,
+					[this](double NewValue)
+					{
+						SetCharacterSpeed(NewValue);
+					},
+					TEXT("动画播放速度")))
+		];
+		InspectorBox->AddSlot().AutoHeight()[
+			MakeInspectorRow(
+				TEXT("播放"),
+				SNew(SButton)
+					.ButtonStyle(FAppStyle::Get(), "Menu.Button")
+					.ContentPadding(FMargin(6.0f, 2.0f))
+					.OnClicked_Lambda([this, bPaused]()
+					{
+						SetCharacterPaused(!bPaused);
+						return FReply::Handled();
+					})
+					[
+						SNew(STextBlock)
+							.Text(FText::FromString(bPaused ? TEXT("继续") : TEXT("暂停")))
+							.Font(FAppStyle::Get().GetFontStyle("SmallFont"))
+					])
+		];
+	}
+	else if (Record->Type == EEpicodeEntityType::Prop)
+	{
+		const FString MeshPath = GetString(TEXT("staticMesh"), TEXT(""));
+		const bool bSimulate = GetBool(TEXT("simulatePhysics"), false);
+		FString MaterialPath;
+		const TArray<TSharedPtr<FJsonValue>>* Overrides = nullptr;
+		if (Data->TryGetArrayField(TEXT("materialOverrides"), Overrides) && Overrides)
+		{
+			for (const TSharedPtr<FJsonValue>& Value : *Overrides)
+			{
+				const TSharedPtr<FJsonObject> Entry = Value.IsValid() ? Value->AsObject() : nullptr;
+				int32 Slot = INDEX_NONE;
+				if (Entry.IsValid()
+					&& Entry->TryGetNumberField(TEXT("slot"), Slot)
+					&& Slot == 0)
+				{
+					Entry->TryGetStringField(TEXT("material"), MaterialPath);
+					break;
+				}
+			}
+		}
+
+		InspectorBox->AddSlot().AutoHeight()[MakeInspectorSection(TEXT("物品"))];
+		InspectorBox->AddSlot().AutoHeight()[
+			MakeInspectorRow(
+				TEXT("静态网格"),
+				SNew(STextBlock)
+					.Text(FText::FromString(MeshPath))
+					.ToolTipText(FText::FromString(MeshPath))
+					.Font(FAppStyle::Get().GetFontStyle("SmallFont"))
+					.ColorAndOpacity(MutedTextColor())
+					.AutoWrapText(true))
+		];
+		InspectorBox->AddSlot().AutoHeight()[
+			MakeInspectorRow(
+				TEXT("物理"),
+				SNew(SCheckBox)
+					.IsChecked(bSimulate)
+					.OnCheckStateChanged_Lambda([this](ECheckBoxState NewState)
+					{
+						SetPropPhysics(NewState == ECheckBoxState::Checked);
+					}))
+		];
+		InspectorBox->AddSlot().AutoHeight()[
+			MakeInspectorRow(
+				TEXT("材质槽 0"),
+				SNew(SEditableTextBox)
+					.Text(FText::FromString(MaterialPath))
+					.HintText(LOCTEXT("MaterialHint", "材质资产路径"))
+					.Font(FAppStyle::Get().GetFontStyle("SmallFont"))
+					.SelectAllTextWhenFocused(true)
+					.OnTextCommitted_Lambda([this](const FText& NewText, ETextCommit::Type)
+					{
+						if (!NewText.IsEmpty())
+						{
+							SetPropMaterial(0, NewText.ToString());
+						}
+					}))
+		];
+		InspectorBox->AddSlot().AutoHeight()[
+			MakeInspectorRow(
+				TEXT("材质操作"),
+				SNew(SButton)
+					.ButtonStyle(FAppStyle::Get(), "Menu.Button")
+					.ContentPadding(FMargin(6.0f, 2.0f))
+					.OnClicked_Lambda([this]()
+					{
+						ClearPropMaterial(0);
+						return FReply::Handled();
+					})
+					[
+						SNew(STextBlock)
+							.Text(LOCTEXT("ResetMaterial", "清除材质覆盖"))
+							.Font(FAppStyle::Get().GetFontStyle("SmallFont"))
+					])
+		];
+	}
+	else if (Record->Type == EEpicodeEntityType::Light)
+	{
+		const FString LightType = GetString(TEXT("lightType"), TEXT("point"));
+		const double Intensity = GetNumber(TEXT("intensity"), LightType == TEXT("directional") ? 10.0 : 5000.0);
+		const FLinearColor Color = GetColor();
+		const bool bCastShadows = GetBool(TEXT("castShadows"), true);
+		const double Attenuation = GetNumber(TEXT("attenuationRadius"), 1000.0);
+		const double OuterCone = GetNumber(TEXT("outerConeAngle"), 44.0);
+
+		InspectorBox->AddSlot().AutoHeight()[MakeInspectorSection(TEXT("灯光"))];
+		InspectorBox->AddSlot().AutoHeight()[
+			MakeInspectorRow(
+				TEXT("类型"),
+				SNew(STextBlock)
+					.Text(FText::FromString(LightType))
+					.Font(FAppStyle::Get().GetFontStyle("SmallFont"))
+					.ColorAndOpacity(MutedTextColor()))
+		];
+		InspectorBox->AddSlot().AutoHeight()[
+			MakeInspectorRow(
+				TEXT("强度"),
+				MakeInspectorSpin(
+					Intensity, 0.0, 200000.0, 10.0,
+					[this](double NewValue)
+					{
+						SetLightNumber(TEXT("intensity"), NewValue);
+					},
+					TEXT("灯光强度")))
+		];
+		InspectorBox->AddSlot().AutoHeight()[
+			MakeInspectorVector(
+				TEXT("颜色"), FVector(Color.R, Color.G, Color.B), 0.0, 1.0, 0.01,
+				[this, Color](const FVector& NewColor) mutable
+				{
+					SetLightColor(FLinearColor(NewColor.X, NewColor.Y, NewColor.Z, Color.A));
+				},
+				TEXT("R"), TEXT("G"), TEXT("B"))
+		];
+		InspectorBox->AddSlot().AutoHeight()[
+			MakeInspectorRow(
+				TEXT("阴影"),
+				SNew(SCheckBox)
+					.IsChecked(bCastShadows)
+					.OnCheckStateChanged_Lambda([this](ECheckBoxState NewState)
+					{
+						SetLightBool(TEXT("castShadows"), NewState == ECheckBoxState::Checked);
+					}))
+		];
+		if (LightType != TEXT("directional"))
+		{
+			InspectorBox->AddSlot().AutoHeight()[
+				MakeInspectorRow(
+					TEXT("衰减"),
+					MakeInspectorSpin(
+						Attenuation, 0.0, 200000.0, 10.0,
+						[this](double NewValue)
+						{
+							SetLightNumber(TEXT("attenuationRadius"), NewValue);
+						}))
+			];
+		}
+		if (LightType == TEXT("spot"))
+		{
+			InspectorBox->AddSlot().AutoHeight()[
+				MakeInspectorRow(
+					TEXT("外锥角"),
+					MakeInspectorSpin(
+						OuterCone, 0.0, 89.0, 1.0,
+						[this](double NewValue)
+						{
+							SetLightNumber(TEXT("outerConeAngle"), NewValue);
+						}))
+			];
+		}
+	}
+	else if (Record->Type == EEpicodeEntityType::Camera)
+	{
+		const double FieldOfView = GetNumber(TEXT("fieldOfView"), 35.0);
+		const double FocalLength = GetNumber(TEXT("focalLength"), 50.0);
+		const double Aperture = GetNumber(TEXT("aperture"), 2.8);
+		const double FocusDistance = GetNumber(TEXT("focusDistance"), 600.0);
+		const bool bActive = Model.GetActiveCameraId() == Record->Id;
+
+		InspectorBox->AddSlot().AutoHeight()[MakeInspectorSection(TEXT("摄像"))];
+		InspectorBox->AddSlot().AutoHeight()[
+			MakeInspectorRow(
+				TEXT("视场角"),
+				MakeInspectorSpin(
+					FieldOfView, 1.0, 170.0, 1.0,
+					[this](double NewValue)
+					{
+						SetCameraNumber(TEXT("fieldOfView"), NewValue);
+					},
+					TEXT("水平视场角（度）")))
+		];
+		InspectorBox->AddSlot().AutoHeight()[
+			MakeInspectorRow(
+				TEXT("焦距"),
+				MakeInspectorSpin(
+					FocalLength, 1.0, 300.0, 1.0,
+					[this](double NewValue)
+					{
+						SetCameraNumber(TEXT("focalLength"), NewValue);
+					},
+					TEXT("35mm 等效焦距（毫米）")))
+		];
+		InspectorBox->AddSlot().AutoHeight()[
+			MakeInspectorRow(
+				TEXT("光圈"),
+				MakeInspectorSpin(
+					Aperture, 0.1, 32.0, 0.1,
+					[this](double NewValue)
+					{
+						SetCameraNumber(TEXT("aperture"), NewValue);
+					}))
+		];
+		InspectorBox->AddSlot().AutoHeight()[
+			MakeInspectorRow(
+				TEXT("对焦"),
+				MakeInspectorSpin(
+					FocusDistance, 0.0, 100000.0, 10.0,
+					[this](double NewValue)
+					{
+						SetCameraNumber(TEXT("focusDistance"), NewValue);
+					}))
+		];
+		InspectorBox->AddSlot().AutoHeight()[
+			MakeInspectorRow(
+				TEXT("活动相机"),
+				bActive
+					? StaticCastSharedRef<SWidget>(
+						SNew(STextBlock)
+							.Text(LOCTEXT("ActiveCamera", "当前活动相机"))
+							.Font(FAppStyle::Get().GetFontStyle("SmallFont"))
+							.ColorAndOpacity(AccentTextColor()))
+					: StaticCastSharedRef<SWidget>(
+						SNew(SButton)
+							.ButtonStyle(FAppStyle::Get(), "Menu.Button")
+							.ContentPadding(FMargin(6.0f, 2.0f))
+							.OnClicked_Lambda([this]()
+							{
+								ActivateSelectedCameraForSmokeTest();
+								return FReply::Handled();
+							})
+							[
+								SNew(STextBlock)
+									.Text(LOCTEXT("ActivateCamera", "设为活动相机"))
+									.Font(FAppStyle::Get().GetFontStyle("SmallFont"))
+							]))
+		];
+	}
+}
+
+void SEpicodeFocusedShell::ApplySelectedTransform(const FEpicodeTransform& InTransform)
+{
+	const FEpicodeEntityRecord* Record = Model.GetSelectedEntityRecord();
+	if (!Record)
+	{
+		return;
+	}
+
+	FEpicodeTransform Transform = InTransform;
+	if (bInspectorSnap)
+	{
+		const double Grid = FMath::Max(1.0, static_cast<double>(InspectorSnapGrid.X));
+		Transform.Location.X = FMath::GridSnap(Transform.Location.X, Grid);
+		Transform.Location.Y = FMath::GridSnap(Transform.Location.Y, Grid);
+		Transform.Location.Z = FMath::GridSnap(Transform.Location.Z, Grid);
+		Transform.Rotation.Pitch = FMath::GridSnap(Transform.Rotation.Pitch, 15.0);
+		Transform.Rotation.Yaw = FMath::GridSnap(Transform.Rotation.Yaw, 15.0);
+		Transform.Rotation.Roll = FMath::GridSnap(Transform.Rotation.Roll, 15.0);
+	}
+
+	TSharedPtr<FJsonObject> Params = MakeShared<FJsonObject>();
+	Params->SetStringField(TEXT("id"), Record->Id.ToString(EGuidFormats::DigitsWithHyphens));
+	Params->SetObjectField(TEXT("transform"), Transform.ToJson());
+	Params->SetBoolField(TEXT("worldSpace"), bInspectorWorldSpace);
+	Model.Execute(TEXT("entity.setTransform"), Params);
+	RefreshUi();
+}
+
+void SEpicodeFocusedShell::ApplySelectedVisibility(bool bVisible)
+{
+	const FEpicodeEntityRecord* Record = Model.GetSelectedEntityRecord();
+	if (!Record)
+	{
+		return;
+	}
+	TSharedPtr<FJsonObject> Params = MakeShared<FJsonObject>();
+	Params->SetStringField(TEXT("id"), Record->Id.ToString(EGuidFormats::DigitsWithHyphens));
+	Params->SetBoolField(TEXT("visible"), bVisible);
+	Model.Execute(TEXT("entity.setVisible"), Params);
+	RefreshUi();
+}
+
+void SEpicodeFocusedShell::ApplySelectedName(const FString& Name)
+{
+	const FEpicodeEntityRecord* Record = Model.GetSelectedEntityRecord();
+	if (!Record || Name.IsEmpty())
+	{
+		return;
+	}
+	TSharedPtr<FJsonObject> Params = MakeShared<FJsonObject>();
+	Params->SetStringField(TEXT("id"), Record->Id.ToString(EGuidFormats::DigitsWithHyphens));
+	Params->SetStringField(TEXT("name"), Name);
+	Model.Execute(TEXT("entity.rename"), Params);
+	RefreshUi();
+}
+
+void SEpicodeFocusedShell::ApplySelectedDataField(
+	const FString& Field, const TSharedPtr<FJsonValue>& Value)
+{
+	const FEpicodeEntityRecord* Record = Model.GetSelectedEntityRecord();
+	if (!Record || !Value.IsValid())
+	{
+		return;
+	}
+
+	FString Method;
+	if (Record->Type == EEpicodeEntityType::Light)
+	{
+		Method = TEXT("light.update");
+	}
+	else if (Record->Type == EEpicodeEntityType::Camera)
+	{
+		Method = TEXT("camera.update");
+	}
+	else
+	{
+		return;
+	}
+
+	TSharedPtr<FJsonObject> Params = MakeShared<FJsonObject>();
+	Params->SetStringField(TEXT("id"), Record->Id.ToString(EGuidFormats::DigitsWithHyphens));
+	Params->SetField(Field, Value);
+	Model.Execute(Method, Params);
+	RefreshUi();
+}
+
+void SEpicodeFocusedShell::ApplyCharacterAnimation(
+	const FString& AnimationPath, bool bLoop, double PlayRate)
+{
+	const FEpicodeEntityRecord* Record = Model.GetSelectedEntityRecord();
+	if (!Record || Record->Type != EEpicodeEntityType::Character)
+	{
+		return;
+	}
+	if (AnimationPath.IsEmpty())
+	{
+		Model.SetLastMessage(TEXT("动画路径不能为空"));
+		RefreshStatus();
+		return;
+	}
+	TSharedPtr<FJsonObject> Params = MakeShared<FJsonObject>();
+	Params->SetStringField(TEXT("id"), Record->Id.ToString(EGuidFormats::DigitsWithHyphens));
+	Params->SetStringField(TEXT("animation"), AnimationPath);
+	Params->SetBoolField(TEXT("loop"), bLoop);
+	Params->SetNumberField(TEXT("playRate"), PlayRate);
+	Model.Execute(TEXT("character.play"), Params);
+	RefreshUi();
+}
+
+void SEpicodeFocusedShell::SetCharacterPaused(bool bPaused)
+{
+	const FEpicodeEntityRecord* Record = Model.GetSelectedEntityRecord();
+	if (!Record || Record->Type != EEpicodeEntityType::Character)
+	{
+		return;
+	}
+	TSharedPtr<FJsonObject> Params = MakeShared<FJsonObject>();
+	Params->SetStringField(TEXT("id"), Record->Id.ToString(EGuidFormats::DigitsWithHyphens));
+	Params->SetBoolField(TEXT("pause"), bPaused);
+	Model.Execute(TEXT("character.pause"), Params);
+	RefreshUi();
+}
+
+void SEpicodeFocusedShell::SetCharacterSpeed(double PlayRate)
+{
+	const FEpicodeEntityRecord* Record = Model.GetSelectedEntityRecord();
+	if (!Record || Record->Type != EEpicodeEntityType::Character)
+	{
+		return;
+	}
+	TSharedPtr<FJsonObject> Params = MakeShared<FJsonObject>();
+	Params->SetStringField(TEXT("id"), Record->Id.ToString(EGuidFormats::DigitsWithHyphens));
+	Params->SetNumberField(TEXT("playRate"), PlayRate);
+	Model.Execute(TEXT("character.setSpeed"), Params);
+	RefreshUi();
+}
+
+void SEpicodeFocusedShell::SetPropPhysics(bool bSimulate)
+{
+	const FEpicodeEntityRecord* Record = Model.GetSelectedEntityRecord();
+	if (!Record || Record->Type != EEpicodeEntityType::Prop)
+	{
+		return;
+	}
+	TSharedPtr<FJsonObject> Params = MakeShared<FJsonObject>();
+	Params->SetStringField(TEXT("id"), Record->Id.ToString(EGuidFormats::DigitsWithHyphens));
+	Params->SetBoolField(TEXT("simulate"), bSimulate);
+	Model.Execute(TEXT("prop.setPhysics"), Params);
+	RefreshUi();
+}
+
+void SEpicodeFocusedShell::SetPropMaterial(int32 Slot, const FString& MaterialPath)
+{
+	const FEpicodeEntityRecord* Record = Model.GetSelectedEntityRecord();
+	if (!Record || Record->Type != EEpicodeEntityType::Prop || MaterialPath.IsEmpty())
+	{
+		return;
+	}
+	TSharedPtr<FJsonObject> Params = MakeShared<FJsonObject>();
+	Params->SetStringField(TEXT("id"), Record->Id.ToString(EGuidFormats::DigitsWithHyphens));
+	Params->SetNumberField(TEXT("slot"), Slot);
+	Params->SetStringField(TEXT("material"), MaterialPath);
+	Model.Execute(TEXT("prop.setMaterial"), Params);
+	RefreshUi();
+}
+
+void SEpicodeFocusedShell::ClearPropMaterial(int32 Slot)
+{
+	const FEpicodeEntityRecord* Record = Model.GetSelectedEntityRecord();
+	if (!Record || Record->Type != EEpicodeEntityType::Prop)
+	{
+		return;
+	}
+	TSharedPtr<FJsonObject> Params = MakeShared<FJsonObject>();
+	Params->SetStringField(TEXT("id"), Record->Id.ToString(EGuidFormats::DigitsWithHyphens));
+	Params->SetNumberField(TEXT("slot"), Slot);
+	Model.Execute(TEXT("prop.resetMaterial"), Params);
+	RefreshUi();
+}
+
+void SEpicodeFocusedShell::SetLightNumber(const FString& Field, double Value)
+{
+	ApplySelectedDataField(Field, MakeShared<FJsonValueNumber>(Value));
+}
+
+void SEpicodeFocusedShell::SetLightColor(const FLinearColor& Color)
+{
+	TArray<TSharedPtr<FJsonValue>> Values;
+	Values.Add(MakeShared<FJsonValueNumber>(Color.R));
+	Values.Add(MakeShared<FJsonValueNumber>(Color.G));
+	Values.Add(MakeShared<FJsonValueNumber>(Color.B));
+	ApplySelectedDataField(TEXT("color"), MakeShared<FJsonValueArray>(Values));
+}
+
+void SEpicodeFocusedShell::SetLightBool(const FString& Field, bool bValue)
+{
+	ApplySelectedDataField(Field, MakeShared<FJsonValueBoolean>(bValue));
+}
+
+void SEpicodeFocusedShell::SetCameraNumber(const FString& Field, double Value)
+{
+	ApplySelectedDataField(Field, MakeShared<FJsonValueNumber>(Value));
+}
+
+void SEpicodeFocusedShell::SetInspectorWorldSpaceForSmokeTest(bool bWorldSpace)
+{
+	bInspectorWorldSpace = bWorldSpace;
+	LastInspectorSignature.Reset();
+	RefreshInspector();
+}
+
+void SEpicodeFocusedShell::SetInspectorSnapForSmokeTest(bool bSnap)
+{
+	bInspectorSnap = bSnap;
+	LastInspectorSignature.Reset();
+	RefreshInspector();
+}
+
+bool SEpicodeFocusedShell::SetSelectedLocationForSmokeTest(const FVector& Location)
+{
+	const FEpicodeEntityRecord* Record = Model.GetSelectedEntityRecord();
+	if (!Record)
+	{
+		return false;
+	}
+	FEpicodeTransform Transform = Record->Transform;
+	Transform.Location = Location;
+	ApplySelectedTransform(Transform);
+	return GetSelectedLocationForSmokeTest().Equals(Location, 0.01);
+}
+
+bool SEpicodeFocusedShell::SetSelectedVisibilityForSmokeTest(bool bVisible)
+{
+	ApplySelectedVisibility(bVisible);
+	return GetSelectedVisibilityForSmokeTest() == bVisible;
+}
+
+bool SEpicodeFocusedShell::SetSelectedNumberForSmokeTest(
+	const FString& Field, double Value)
+{
+	const FEpicodeEntityRecord* Record = Model.GetSelectedEntityRecord();
+	if (!Record)
+	{
+		return false;
+	}
+	if (Record->Type == EEpicodeEntityType::Light)
+	{
+		SetLightNumber(Field, Value);
+	}
+	else if (Record->Type == EEpicodeEntityType::Camera)
+	{
+		SetCameraNumber(Field, Value);
+	}
+	else
+	{
+		return false;
+	}
+	const FEpicodeEntityRecord* Updated = Model.GetSelectedEntityRecord();
+	double Actual = 0.0;
+	return Updated && Updated->Data.IsValid()
+		&& Updated->Data->TryGetNumberField(Field, Actual)
+		&& FMath::IsNearlyEqual(Actual, Value, 0.001);
+}
+
+bool SEpicodeFocusedShell::SetSelectedPhysicsForSmokeTest(bool bSimulate)
+{
+	SetPropPhysics(bSimulate);
+	const FEpicodeEntityRecord* Record = Model.GetSelectedEntityRecord();
+	bool bActual = false;
+	return Record && Record->Data.IsValid()
+		&& Record->Data->TryGetBoolField(TEXT("simulatePhysics"), bActual)
+		&& bActual == bSimulate;
+}
+
+bool SEpicodeFocusedShell::SetSelectedAnimationSpeedForSmokeTest(double PlayRate)
+{
+	SetCharacterSpeed(PlayRate);
+	const FEpicodeEntityRecord* Record = Model.GetSelectedEntityRecord();
+	double Actual = 0.0;
+	return Record && Record->Data.IsValid()
+		&& Record->Data->TryGetNumberField(TEXT("playRate"), Actual)
+		&& FMath::IsNearlyEqual(Actual, PlayRate, 0.001);
+}
+
+bool SEpicodeFocusedShell::SetSelectedPausedForSmokeTest(bool bPaused)
+{
+	SetCharacterPaused(bPaused);
+	const FEpicodeEntityRecord* Record = Model.GetSelectedEntityRecord();
+	bool bActual = false;
+	return Record && Record->Data.IsValid()
+		&& Record->Data->TryGetBoolField(TEXT("paused"), bActual)
+		&& bActual == bPaused;
+}
+
+bool SEpicodeFocusedShell::SelectEntityByTypeForSmokeTest(const FString& Type)
+{
+	for (const FEpicodeFocusedEntityRow& Row : Model.GetEntities())
+	{
+		if (Row.Type == Type)
+		{
+			SelectEntity(Row.Id, false);
+			return Model.GetSelectedEntityId() == Row.Id;
+		}
+	}
+	return false;
+}
+
+bool SEpicodeFocusedShell::SelectLastEntityOfTypeForSmokeTest(const FString& Type)
+{
+	for (int32 Index = Model.GetEntities().Num() - 1; Index >= 0; --Index)
+	{
+		const FEpicodeFocusedEntityRow& Row = Model.GetEntities()[Index];
+		if (Row.Type == Type)
+		{
+			SelectEntity(Row.Id, false);
+			return Model.GetSelectedEntityId() == Row.Id;
+		}
+	}
+	return false;
+}
+
+bool SEpicodeFocusedShell::ActivateSelectedCameraForSmokeTest()
+{
+	const FEpicodeEntityRecord* Record = Model.GetSelectedEntityRecord();
+	if (!Record || Record->Type != EEpicodeEntityType::Camera)
+	{
+		return false;
+	}
+	TSharedPtr<FJsonObject> Params = MakeShared<FJsonObject>();
+	Params->SetStringField(TEXT("id"), Record->Id.ToString(EGuidFormats::DigitsWithHyphens));
+	Model.Execute(TEXT("camera.activate"), Params);
+	RefreshUi();
+	return Model.GetActiveCameraId() == Record->Id;
+}
+
+FVector SEpicodeFocusedShell::GetSelectedLocationForSmokeTest() const
+{
+	const FEpicodeEntityRecord* Record = Model.GetSelectedEntityRecord();
+	return Record ? Record->Transform.Location : FVector::ZeroVector;
+}
+
+bool SEpicodeFocusedShell::GetSelectedVisibilityForSmokeTest() const
+{
+	const FEpicodeEntityRecord* Record = Model.GetSelectedEntityRecord();
+	return Record ? Record->bVisible : false;
+}
+
+double SEpicodeFocusedShell::GetSelectedNumberForSmokeTest(const FString& Field) const
+{
+	const FEpicodeEntityRecord* Record = Model.GetSelectedEntityRecord();
+	double Value = 0.0;
+	if (Record && Record->Data.IsValid())
+	{
+		Record->Data->TryGetNumberField(Field, Value);
+	}
+	return Value;
+}
+
+FString SEpicodeFocusedShell::GetSelectedDataStringForSmokeTest(const FString& Field) const
+{
+	const FEpicodeEntityRecord* Record = Model.GetSelectedEntityRecord();
+	FString Value;
+	if (Record && Record->Data.IsValid())
+	{
+		Record->Data->TryGetStringField(Field, Value);
+	}
+	return Value;
+}
+
+FString SEpicodeFocusedShell::GetInspectorSummaryForSmokeTest() const
+{
+	const FEpicodeEntityRecord* Record = Model.GetSelectedEntityRecord();
+	if (!Record)
+	{
+		return TEXT("no-selection");
+	}
+	const FVector& Location = Record->Transform.Location;
+	return FString::Printf(
+		TEXT("%s|%s|visible=%d|loc=%.1f,%.1f,%.1f|activeCamera=%d"),
+		*Record->GetTypeName(),
+		*Record->Name,
+		Record->bVisible ? 1 : 0,
+		Location.X,
+		Location.Y,
+		Location.Z,
+		Model.GetActiveCameraId() == Record->Id ? 1 : 0);
+}
+
 void SEpicodeFocusedShell::RefreshSceneList()
 {
 	if (!SceneListBox.IsValid())
@@ -2280,6 +3449,7 @@ void SEpicodeFocusedShell::SelectEntity(const FGuid& InId, bool bFocus)
 		Viewport->OnFocusViewportToSelection();
 	}
 	RefreshObjectList();
+	RefreshInspector();
 	RefreshStatus();
 }
 

@@ -46,6 +46,24 @@ public:
 	bool PlaceFirstAssetForSmokeTest(const FString& Type);
 	bool HideFirstAssetForSmokeTest(const FString& Type);
 	bool RestoreHiddenAssetsForSmokeTest();
+	void SetInspectorWorldSpaceForSmokeTest(bool bWorldSpace);
+	void SetInspectorSnapForSmokeTest(bool bSnap);
+	double GetInspectorSnapGridForSmokeTest() const { return InspectorSnapGrid.X; }
+	bool SetSelectedLocationForSmokeTest(const FVector& Location);
+	bool SetSelectedVisibilityForSmokeTest(bool bVisible);
+	bool SetSelectedNumberForSmokeTest(const FString& Field, double Value);
+	bool SetSelectedPhysicsForSmokeTest(bool bSimulate);
+	bool SetSelectedAnimationSpeedForSmokeTest(double PlayRate);
+	bool SetSelectedPausedForSmokeTest(bool bPaused);
+	bool SelectEntityByTypeForSmokeTest(const FString& Type);
+	bool SelectLastEntityOfTypeForSmokeTest(const FString& Type);
+	bool ActivateSelectedCameraForSmokeTest();
+	FVector GetSelectedLocationForSmokeTest() const;
+	bool GetSelectedVisibilityForSmokeTest() const;
+	double GetSelectedNumberForSmokeTest(const FString& Field) const;
+	FString GetSelectedDataStringForSmokeTest(const FString& Field) const;
+	FGuid GetActiveCameraIdForSmokeTest() const { return Model.GetActiveCameraId(); }
+	FString GetInspectorSummaryForSmokeTest() const;
 	int32 GetEntityCountForSmokeTest() const { return Model.GetEntityCount(); }
 	int32 GetAssetCountForSmokeTest() const { return Model.GetAssets().Num(); }
 	FString GetWidgetModeForSmokeTest() const { return GetTransformModeLabel(); }
@@ -65,6 +83,31 @@ private:
 	TSharedRef<SWidget> MakeMenuCombo(const FString& Label, TFunction<TSharedRef<SWidget>()> InBuildMenu);
 	TSharedRef<SWidget> MakeFilterButton(const FString& Label, const FString& Value);
 	TSharedRef<SWidget> MakePanelHeader(const FString& Title, TSharedRef<SWidget> Extra);
+	TSharedRef<SWidget> MakeInspectorRow(const FString& Label, TSharedRef<SWidget> Value);
+	TSharedRef<SWidget> MakeInspectorSection(const FString& Title);
+	TSharedRef<SWidget> MakeInspectorSpin(
+		double Value, double MinValue, double MaxValue, double Delta,
+		TFunction<void(double)> OnCommit, const FString& ToolTip = FString());
+	TSharedRef<SWidget> MakeInspectorVector(
+		const FString& Label, const FVector& Value, double MinValue, double MaxValue, double Delta,
+		TFunction<void(const FVector&)> OnCommit,
+		FString AxisX = TEXT("X"), FString AxisY = TEXT("Y"), FString AxisZ = TEXT("Z"));
+	TSharedRef<SWidget> MakeInspectorRotator(
+		const FString& Label, const FRotator& Value, TFunction<void(const FRotator&)> OnCommit);
+	void ApplySelectedTransform(const FEpicodeTransform& Transform);
+	void ApplySelectedVisibility(bool bVisible);
+	void ApplySelectedName(const FString& Name);
+	void ApplySelectedDataField(const FString& Field, const TSharedPtr<FJsonValue>& Value);
+	void ApplyCharacterAnimation(const FString& AnimationPath, bool bLoop, double PlayRate);
+	void SetCharacterPaused(bool bPaused);
+	void SetCharacterSpeed(double PlayRate);
+	void SetPropPhysics(bool bSimulate);
+	void SetPropMaterial(int32 Slot, const FString& MaterialPath);
+	void ClearPropMaterial(int32 Slot);
+	void SetLightNumber(const FString& Field, double Value);
+	void SetLightColor(const FLinearColor& Color);
+	void SetLightBool(const FString& Field, bool bValue);
+	void SetCameraNumber(const FString& Field, double Value);
 
 	void BuildSceneMenu(FMenuBuilder& MenuBuilder);
 	void BuildOpenSceneMenu(FMenuBuilder& MenuBuilder);
@@ -95,6 +138,7 @@ private:
 	FString GetLayoutPath() const;
 	void RefreshObjectList();
 	void RefreshAssetList();
+	void RefreshInspector();
 	void RefreshSceneList();
 	void RefreshStatus();
 	void SyncSelectionFromViewport();
@@ -149,6 +193,8 @@ private:
 	TSharedPtr<SEditableTextBox> ObjectSearchBox;
 	TSharedPtr<SEditableTextBox> SceneNameInput;
 	TSharedPtr<SVerticalBox> ObjectListBox;
+	TSharedPtr<SVerticalBox> InspectorBox;
+	TSharedPtr<STextBlock> InspectorTypeText;
 	TSharedPtr<SVerticalBox> SceneListBox;
 	TSharedPtr<SVerticalBox> AssetListBox;
 	TSharedPtr<SVerticalBox> ChatHistoryBox;
@@ -169,11 +215,13 @@ private:
 	FString TypeFilter = TEXT("All");
 	FString LastSignature;
 	FString LastAssetSignature;
+	FString LastInspectorSignature;
 	TArray<FString> RecentSceneIds;
 	FVector SavedCameraLocation = FVector::ZeroVector;
 	FRotator SavedCameraRotation = FRotator::ZeroRotator;
 	float LeftPanelWidth = 0.22f;
 	float RightPanelWidth = 0.22f;
+	FVector InspectorSnapGrid = FVector(10.0);
 	double LastRefreshTime = 0.0;
 	double LastLayoutSaveTime = 0.0;
 	bool bHasSavedCamera = false;
@@ -181,4 +229,6 @@ private:
 	bool bSkipViewportForSmoke = false;
 	bool bLeftPanelVisible = true;
 	bool bRightPanelVisible = true;
+	bool bInspectorWorldSpace = false;
+	bool bInspectorSnap = false;
 };

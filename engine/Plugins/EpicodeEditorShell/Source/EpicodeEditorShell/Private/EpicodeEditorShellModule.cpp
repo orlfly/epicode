@@ -112,6 +112,11 @@ void FEpicodeEditorShellModule::ShutdownModule()
 		FTSTicker::GetCoreTicker().RemoveTicker(AssetLibrarySmokeHandle);
 		AssetLibrarySmokeHandle.Reset();
 	}
+	if (InspectorSmokeHandle.IsValid())
+	{
+		FTSTicker::GetCoreTicker().RemoveTicker(InspectorSmokeHandle);
+		InspectorSmokeHandle.Reset();
+	}
 
 	if (ShellWidget.IsValid())
 	{
@@ -290,6 +295,14 @@ bool FEpicodeEditorShellModule::TryCreateShellWindow()
 		AssetLibrarySmokeStep = 0;
 		AssetLibrarySmokeHandle = FTSTicker::GetCoreTicker().AddTicker(
 			FTickerDelegate::CreateRaw(this, &FEpicodeEditorShellModule::HandleAssetLibrarySmokeTick),
+			1.0f);
+	}
+	else if (FParse::Param(
+		FCommandLine::Get(), TEXT("EpicodeFocusedEditorInspectorSmoke")))
+	{
+		InspectorSmokeStep = 0;
+		InspectorSmokeHandle = FTSTicker::GetCoreTicker().AddTicker(
+			FTickerDelegate::CreateRaw(this, &FEpicodeEditorShellModule::HandleInspectorSmokeTick),
 			1.0f);
 	}
 	else if (FParse::Param(FCommandLine::Get(), TEXT("EpicodeFocusedEditorSelectFirst")))
@@ -644,6 +657,152 @@ bool FEpicodeEditorShellModule::HandleAssetLibrarySmokeTick(float DeltaTime)
 		break;
 	default:
 		AssetLibrarySmokeHandle.Reset();
+		if (FParse::Param(FCommandLine::Get(), TEXT("EpicodeFocusedEditorExitSmoke"))
+			&& ShellWindow.IsValid())
+		{
+			ShellWindow->RequestDestroyWindow();
+		}
+		return false;
+	}
+	return true;
+}
+
+bool FEpicodeEditorShellModule::HandleInspectorSmokeTick(float DeltaTime)
+{
+	if (!ShellWidget.IsValid())
+	{
+		InspectorSmokeHandle.Reset();
+		return false;
+	}
+
+	const FString FixtureDir = FPaths::Combine(FPaths::ProjectDir(), TEXT("Tests/Fixtures"));
+	const FString PropPath = FPaths::Combine(FixtureDir, TEXT("cube.fbx"));
+	const FString CharacterPath = FPaths::Combine(FixtureDir, TEXT("skeletal.fbx"));
+
+	switch (InspectorSmokeStep++)
+	{
+	case 0:
+		ShellWidget->CreateWorkbenchSceneForSmokeTest();
+		ShellWidget->SpawnWorkbenchEntitiesForSmokeTest();
+		break;
+	case 1:
+	{
+		const bool bImported = ShellWidget->ImportAssetForSmokeTest(PropPath, TEXT("Prop"));
+		UE_LOG(LogEpicodeEditorShell, Display,
+			TEXT("FocusedEditor inspector smoke: propImported=%s"),
+			bImported ? TEXT("true") : TEXT("false"));
+		break;
+	}
+	case 2:
+	{
+		const bool bPlaced = ShellWidget->PlaceFirstAssetForSmokeTest(TEXT("Prop"));
+		const bool bSelected = bPlaced && ShellWidget->SelectEntityByTypeForSmokeTest(TEXT("Prop"));
+		const bool bMoved = bSelected && ShellWidget->SetSelectedLocationForSmokeTest(FVector(100.0, 200.0, 50.0));
+		const FVector BeforeUndo = ShellWidget->GetSelectedLocationForSmokeTest();
+		const double SnapGrid = ShellWidget->GetInspectorSnapGridForSmokeTest();
+		ShellWidget->SetInspectorSnapForSmokeTest(true);
+		ShellWidget->SetSelectedLocationForSmokeTest(FVector(SnapGrid * 7.0 + 3.0, SnapGrid * 4.0 + 3.0, SnapGrid + 3.0));
+		const FVector Snapped = ShellWidget->GetSelectedLocationForSmokeTest();
+		const bool bSnap = FMath::IsNearlyEqual(Snapped.X, SnapGrid * 7.0, 0.01)
+			&& FMath::IsNearlyEqual(Snapped.Y, SnapGrid * 4.0, 0.01)
+			&& FMath::IsNearlyEqual(Snapped.Z, SnapGrid, 0.01);
+		ShellWidget->SetInspectorSnapForSmokeTest(false);
+		ShellWidget->SetSelectedLocationForSmokeTest(BeforeUndo);
+		const bool bHidden = bSelected && ShellWidget->SetSelectedVisibilityForSmokeTest(false);
+		const bool bShown = bSelected && ShellWidget->SetSelectedVisibilityForSmokeTest(true);
+		const bool bPhysics = bSelected && ShellWidget->SetSelectedPhysicsForSmokeTest(true);
+		UE_LOG(LogEpicodeEditorShell, Display,
+			TEXT("FocusedEditor inspector smoke: prop selected=%s moved=%s snap=%s grid=%.1f hidden=%s shown=%s physics=%s summary=%s"),
+			bSelected ? TEXT("true") : TEXT("false"),
+			bMoved ? TEXT("true") : TEXT("false"),
+			bSnap ? TEXT("true") : TEXT("false"),
+			SnapGrid,
+			bHidden ? TEXT("true") : TEXT("false"),
+			bShown ? TEXT("true") : TEXT("false"),
+			bPhysics ? TEXT("true") : TEXT("false"),
+			*ShellWidget->GetInspectorSummaryForSmokeTest());
+		break;
+	}
+	case 3:
+		WriteScreenshot(TEXT("EditorShellInspectorProp.png"));
+		break;
+	case 4:
+	{
+		const bool bSelected = ShellWidget->SelectEntityByTypeForSmokeTest(TEXT("Light"));
+		const bool bIntensity = bSelected && ShellWidget->SetSelectedNumberForSmokeTest(TEXT("intensity"), 8000.0);
+		const bool bAttenuation = bSelected && ShellWidget->SetSelectedNumberForSmokeTest(TEXT("attenuationRadius"), 1500.0);
+		UE_LOG(LogEpicodeEditorShell, Display,
+			TEXT("FocusedEditor inspector smoke: light selected=%s intensity=%s attenuation=%s summary=%s"),
+			bSelected ? TEXT("true") : TEXT("false"),
+			bIntensity ? TEXT("true") : TEXT("false"),
+			bAttenuation ? TEXT("true") : TEXT("false"),
+			*ShellWidget->GetInspectorSummaryForSmokeTest());
+		break;
+	}
+	case 5:
+		WriteScreenshot(TEXT("EditorShellInspectorLight.png"));
+		break;
+	case 6:
+	{
+		const bool bSelected = ShellWidget->SelectLastEntityOfTypeForSmokeTest(TEXT("Camera"));
+		const bool bFov = bSelected && ShellWidget->SetSelectedNumberForSmokeTest(TEXT("fieldOfView"), 55.0);
+		const bool bActive = bSelected && ShellWidget->ActivateSelectedCameraForSmokeTest();
+		UE_LOG(LogEpicodeEditorShell, Display,
+			TEXT("FocusedEditor inspector smoke: camera selected=%s fov=%s active=%s activeId=%s"),
+			bSelected ? TEXT("true") : TEXT("false"),
+			bFov ? TEXT("true") : TEXT("false"),
+			bActive ? TEXT("true") : TEXT("false"),
+			*ShellWidget->GetActiveCameraIdForSmokeTest().ToString(EGuidFormats::DigitsWithHyphens));
+		break;
+	}
+	case 7:
+		WriteScreenshot(TEXT("EditorShellInspectorCamera.png"));
+		break;
+	case 8:
+	{
+		const bool bImported = ShellWidget->ImportAssetForSmokeTest(CharacterPath, TEXT("Character"));
+		UE_LOG(LogEpicodeEditorShell, Display,
+			TEXT("FocusedEditor inspector smoke: characterImported=%s"),
+			bImported ? TEXT("true") : TEXT("false"));
+		break;
+	}
+	case 9:
+	{
+		const bool bPlaced = ShellWidget->PlaceFirstAssetForSmokeTest(TEXT("Character"));
+		const bool bSelected = bPlaced && ShellWidget->SelectEntityByTypeForSmokeTest(TEXT("Character"));
+		const bool bSpeed = bSelected && ShellWidget->SetSelectedAnimationSpeedForSmokeTest(2.5);
+		const bool bPaused = bSelected && ShellWidget->SetSelectedPausedForSmokeTest(true);
+		UE_LOG(LogEpicodeEditorShell, Display,
+			TEXT("FocusedEditor inspector smoke: character selected=%s speed=%s paused=%s summary=%s"),
+			bSelected ? TEXT("true") : TEXT("false"),
+			bSpeed ? TEXT("true") : TEXT("false"),
+			bPaused ? TEXT("true") : TEXT("false"),
+			*ShellWidget->GetInspectorSummaryForSmokeTest());
+		break;
+	}
+	case 10:
+		WriteScreenshot(TEXT("EditorShellInspectorCharacter.png"));
+		break;
+	case 11:
+	{
+		const bool bSelected = ShellWidget->SelectEntityByTypeForSmokeTest(TEXT("Prop"));
+		const FVector BeforeUndo = ShellWidget->GetSelectedLocationForSmokeTest();
+		ShellWidget->SetSelectedLocationForSmokeTest(FVector(400.0, 410.0, 420.0));
+		const bool bUndo = ShellWidget->ProcessShortcutForSmokeTest(EKeys::Z, true, false);
+		const bool bReselected = ShellWidget->SelectEntityByTypeForSmokeTest(TEXT("Prop"));
+		const bool bUndoRestored = bReselected
+			&& ShellWidget->GetSelectedLocationForSmokeTest().Equals(BeforeUndo, 0.01);
+		UE_LOG(LogEpicodeEditorShell, Display,
+			TEXT("FocusedEditor inspector smoke: undo selected=%s handled=%s reselected=%s restored=%s"),
+			bSelected ? TEXT("true") : TEXT("false"),
+			bUndo ? TEXT("true") : TEXT("false"),
+			bReselected ? TEXT("true") : TEXT("false"),
+			bUndoRestored ? TEXT("true") : TEXT("false"));
+		break;
+	}
+	default:
+		InspectorSmokeHandle.Reset();
+		UE_LOG(LogEpicodeEditorShell, Display, TEXT("FocusedEditor inspector smoke complete"));
 		if (FParse::Param(FCommandLine::Get(), TEXT("EpicodeFocusedEditorExitSmoke"))
 			&& ShellWindow.IsValid())
 		{

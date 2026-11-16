@@ -266,6 +266,22 @@ const FEpicodeFocusedEntityRow* FEpicodeFocusedShellModel::FindEntity(const FGui
 	});
 }
 
+const FEpicodeEntityRecord* FEpicodeFocusedShellModel::GetSelectedEntityRecord() const
+{
+	UEpicodeSceneSubsystem* Scene = GetSceneSubsystem();
+	if (!Scene || !SelectedEntityId.IsValid())
+	{
+		return nullptr;
+	}
+	return Scene->FindEntity(SelectedEntityId);
+}
+
+FGuid FEpicodeFocusedShellModel::GetActiveCameraId() const
+{
+	UEpicodeSceneSubsystem* Scene = GetSceneSubsystem();
+	return Scene ? Scene->GetActiveCameraId() : FGuid();
+}
+
 FString FEpicodeFocusedShellModel::GetSelectedEntityLabel() const
 {
 	const FEpicodeFocusedEntityRow* Row = FindEntity(SelectedEntityId);

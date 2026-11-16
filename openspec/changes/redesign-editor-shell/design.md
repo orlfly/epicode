@@ -378,12 +378,12 @@ SidecarIdleSeconds=300
 
 ## 2.x 聚焦工作台实施结果
 
-2026-11-15 已完成 2.1–2.9（含 2.3 场景文件导入和 2.4 角色/物品本地库）。实现仍坚持“界面级隐藏、复用命令注册表、保留 `--legacy`”的约束。
+2026-11-16 已完成 2.1–2.9（含 2.3 场景文件导入和 2.4 角色/物品本地库）以及 3.1–3.6；3.7 已有 CLI smoke，正式 automation 测试套件待补。实现仍坚持“界面级隐藏、复用命令注册表、保留 `--legacy`”的约束。
 
 ### 布局与面板
 
 - 根控件使用垂直 `SVerticalBox`：顶部菜单栏、中间 `SSplitter` 三栏、底部状态栏。
-- 左栏包含对象列表、搜索框、类型过滤按钮、资源库列表、本地库场景列表和新场景名输入；右栏是对话占位、输入框和禁用的发送按钮。
+- 左栏包含对象列表、搜索框、类型过滤按钮、资源库列表、本地库场景列表和新场景名输入；右栏上半部分是四类实体检查器，下半部分是对话占位、输入框和禁用的发送按钮。
 - 左右栏折叠通过 `SSplitter::Slot` 的动态 `Value`/`MinSize` 加 `SBox::Visibility` 实现；中间视口使用 `Value = 1 - left - right` 自动扩展。
 - 面板宽度、折叠状态、最近场景 ID 和视口镜头写入 `Saved/Epicode/Editor/layout.json`。使用 `FJsonSerializer` 读写，槽位 `OnSlotResized` 标脏，`Tick` 节流 0.5 秒保存，析构时再保存一次。
 - 视口镜头通过 `FLevelEditorViewportClient::GetViewLocation/GetViewRotation` 读取，启动时 `SetViewLocation/SetViewRotation` 恢复；相机速度使用 UE 5.8 的 `FEditorViewportCameraSpeedSettings` 新 API，避免已废弃的整数设置接口。
@@ -405,6 +405,13 @@ SidecarIdleSeconds=300
 - 资源库通过 `FAssetRegistryModule` 递归扫描 `UEpicodeSettings::ImportContentRoot`（默认 `/Game/Epicode/Imported`），`USkeletalMesh` 标为角色、`UStaticMesh` 标为物品，按名称排序。列表项单击放置，菜单也可按类型展开资产子菜单。
 - “从本地库删除角色/物品”只把资产路径加入 `Saved/Epicode/Editor/asset-library.json` 的 `hidden` 数组并刷新列表；资产文件和引用它的场景实体保持不变；“本地库 > 恢复隐藏资源”清空该数组。
 
+### 四类实体检查器与数值变换
+
+- 右栏检查器在选中实体时按类型重建：通用名称/可见性；角色骨骼网格、动画路径、循环、播放/暂停、速度；物品静态网格、物理开关、材质槽覆盖；灯光类型、强度、RGB 颜色、阴影、衰减和聚光外锥角；摄像视场角、焦距、光圈、对焦距离和活动相机。
+- 所有检查器写操作走命令注册表：名称 `entity.rename`、可见性 `entity.setVisible`、变换 `entity.setTransform`、角色 `character.play/pause/setSpeed`、物品 `prop.setPhysics/setMaterial/resetMaterial`、灯光 `light.update`、摄像 `camera.update/activate`。
+- 变换区提供位置/旋转/缩放数值框、局部/世界切换和吸附开关。吸附使用 `GEditor->GetGridSize()` 吸附位置，旋转按 15 度；世界坐标从 Actor 读取并通过 `worldSpace=true` 写回，局部坐标直接编辑文档变换。
+- 只有检查器签名（场景 revision、选择、活动相机、坐标空间、吸附）变化时才重建控件，避免 0.25 秒刷新周期抢走 SpinBox/文本框焦点。
+
 ### 快捷键与拦截
 
 - 通过 `SLevelViewport::GetCommandList()` 的子命令列表覆盖通用命令：`Q/W/E/R`（`FEditorViewportCommands`）、`F`（`FocusViewportToSelection`）、`Delete`（`FGenericCommands`）、`Ctrl+Z`/`Ctrl+Shift+Z`/`Ctrl+Y`（Undo/Redo）、`Ctrl+S`（`FLevelEditorCommands::Save`）。
@@ -419,12 +426,13 @@ SidecarIdleSeconds=300
 
 ### 验证证据
 
-- 构建：`engine/Scripts/Build.sh`，`Result: Succeeded`；插件二进制 sha256 `21367bdb69b32fa68a3d2244fdff8f399bbe9bd1a742ed825614f841fbe377de`，大小 777032 bytes。
-- 工作台截图：`Saved/Screenshots/EditorShellWorkbench.png`（1600x868，sha256 `23b705b0...abc4a76`）、折叠布局 `EditorShellCollapsed.png`（`efbcce73...5656cf`）、菜单 `EditorShellMenu.png`（`82f3fd58...3353247`）、菜单 popup `EditorShellMenuPopup.png`（137x194，`ae19adcb...da84b9fa`）。
+- 构建：`engine/Scripts/Build.sh`，`Result: Succeeded`；插件二进制 sha256 `3e7e5900e3b80f25182a363aaece39df6fee40f2752e3c4fa161ad5bf7b0a3fe`，大小 947904 bytes。
+- 工作台截图：`Saved/Screenshots/EditorShellWorkbench.png`（1600x900，sha256 `b23105e3...b97a8b8`）、折叠布局 `EditorShellCollapsed.png`（`b0fb4193...2ae47d4`）、菜单 `EditorShellMenu.png`（`938969c8...51d04697`）、菜单 popup `EditorShellMenuPopup.png`（137x194，`ae19adcb...da84b9fa`）。
 - 菜单实际打开：日志 `FocusedEditor menu smoke: label=场景 open=true`；Slate 主窗口截图不含 popup，使用 `WriteActiveWindowScreenshot` 抓取 137x194 菜单窗口。
-- 场景文件导入：`-EpicodeFocusedEditorSceneImportSmoke=/tmp/epicode-import-test/scene.json` 日志 `FocusedEditor scene import smoke: success=true`，截图 `EditorShellSceneImport.png`（1600x868，`0a5d6f17...0395d10`）；场景库出现 `Imported Scene Test`。
-- 本地库资产：`-EpicodeFocusedEditorAssetLibrarySmoke=.../cube.fbx -EpicodeFocusedEditorAssetLibraryCharacterSmoke=.../skeletal.fbx` 日志依次 `assets=2`、`placed=true entities=2`、`characterPlaced=true entities=3`、`hidden=true assets=1`、`restored=true assets=2`；截图 `EditorShellAssetLibrary.png`（1600x868，`aa2dd9ea...8e77ab7`）。
+- 场景文件导入：`-EpicodeFocusedEditorSceneImportSmoke=/tmp/epicode-import-test/scene.json` 日志 `FocusedEditor scene import smoke: success=true`，截图 `EditorShellSceneImport.png`（1600x900，`fb3fd5de...b4acd77e`）；场景库出现 `Imported Scene Test`。
+- 本地库资产：`-EpicodeFocusedEditorAssetLibrarySmoke=.../cube.fbx -EpicodeFocusedEditorAssetLibraryCharacterSmoke=.../skeletal.fbx` 日志依次 `assets=2`、`placed=true entities=2`、`characterPlaced=true entities=3`、`hidden=true assets=1`、`restored=true assets=2`；截图 `EditorShellAssetLibrary.png`（1600x900，`8e062479...ac61fe`）。
 - 资产持久化：首次导入后 `Content/Epicode/Imported` 生成 16 个 `.uasset`（约 932K）；重启后 workbench smoke 资源库仍显示 `cube`（物品）和 `skeletal`（角色）共 2 项，截图即上面的工作台截图。
+- 检查器 smoke：`-EpicodeFocusedEditorInspectorSmoke` 覆盖物品属性（位置、可见性、物理）、灯光强度/衰减、摄像 FOV/活动相机、角色速度/暂停；日志 `prop ... snap=true grid=10.0 ...`、`camera ... active=true`、`character ... speed=true paused=true`、`undo ... restored=true`。截图 `EditorShellInspectorProp.png`（`e834edb5...e9650c7`）、`EditorShellInspectorLight.png`（`b1ece030...475eb2e7`）、`EditorShellInspectorCamera.png`（`1b9d9647...a3e6f918`）、`EditorShellInspectorCharacter.png`（`ee2cc137...504d9203`）。
 - 快捷键：W/E/R/Q/F 均 `handled=true`；Delete 后实体数 4 -> 3，Ctrl+Z 后 3 -> 4；Ctrl+S `handled=true`；无 `EnsureFailed`。
 - 布局恢复：把 `layout.json` 改为左右折叠、宽度 0.30/0.15 后重启，日志 `layout loaded: left=false right=false leftWidth=0.300 rightWidth=0.150 recent=2 camera=true`；截图 `EditorShellLayoutLoad.png`（`d70d99c7...c25b53f7`）。
 - 视口重试：`-EpicodeFocusedEditorViewportRetrySmoke` 先注入创建失败，1 秒后重试；日志 `viewport retry smoke: ready=true`，截图 `EditorShellViewportRetry.png`（`4d17a5d2...3995e9c1`）。
@@ -437,6 +445,7 @@ SidecarIdleSeconds=300
 - 资产导入是同步调用，没有进度条、取消和失败清理；大文件会阻塞界面，留给任务 4.6。
 - 场景文件导入支持 `scene.json` 预检、覆盖确认和打开；完整 schema 校验、另存副本留给任务 4.5。
 - 资源库暂无缩略图、搜索和标签过滤，留给任务 4.4/后续增强。
+- 3.7 仍需把现有 workbench/shortcut/inspector CLI smoke 迁移为正式 `Epicode.EditorShell.*` automation 测试，并补充“禁止入口”断言。
 - 对话面板无后端，发送按钮禁用；任务 5.x 接入。
 - 视口重试已实现并做故障注入测试；真实驱动失败仍只能由用户手动点击重试。
 

@@ -61,6 +61,8 @@ public:
 	UEpicodeSceneSubsystem* GetSceneSubsystem() const;
 
 	const FEpicodeFocusedEntityRow* FindEntity(const FGuid& InId) const;
+	const FEpicodeEntityRecord* GetSelectedEntityRecord() const;
+	FGuid GetActiveCameraId() const;
 	FString GetSelectedEntityLabel() const;
 	FString GetSignature() const;
 	FString GetAssetSignature() const;
