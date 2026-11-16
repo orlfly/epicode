@@ -28,7 +28,7 @@
 - [x] 3.4 实现放置：从本地库放置角色/物品，从菜单放置四类灯光和相机，放置后自动选中并进入移动模式；`character.spawn`/`prop.spawn` 与 `light.create`/`camera.create` 均已接入
 - [x] 3.5 实现从场景删除：`entity.delete`、灯光/相机删除命令、源资产保留、一次撤销恢复；Delete 走 `entity.delete`，快捷键 smoke 验证 4 -> 3 且 Ctrl+Z 恢复 3 -> 4
 - [x] 3.6 实现范围限制：移除/禁用层级重挂接、分组、环境、材质图、蓝图、动画蓝图、Sequencer、地形、植被、物理约束、导航、PIE、渲染队列和通用资产编辑入口；聚焦菜单不注册这些入口，旧功能保留在 `--legacy`
-- [ ] 3.7 实现 `Epicode.EditorShell.Viewport`、`Scope`、`Inspector` 自动化测试，覆盖选择、gizmo、属性、删除、撤销和禁止入口（已有 workbench/shortcut/inspector smoke 覆盖属性、吸附、删除和撤销；正式 automation 测试套件仍待补）
+- [x] 3.7 实现 `Epicode.EditorShell.Viewport`、`Scope`、`Inspector` 自动化测试，覆盖选择、gizmo、属性、删除、撤销和禁止入口；`Scripts/Test.sh` 全量 165 项通过，0 失败
 
 ## 4. 本地库
 

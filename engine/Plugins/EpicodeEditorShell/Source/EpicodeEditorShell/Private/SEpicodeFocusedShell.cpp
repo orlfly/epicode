@@ -517,6 +517,14 @@ void SEpicodeFocusedShell::CloseMenuForSmokeTest(const FString& Label)
 	}
 }
 
+TArray<FString> SEpicodeFocusedShell::GetMenuLabelsForSmokeTest() const
+{
+	TArray<FString> Labels;
+	MenuCombos.GetKeys(Labels);
+	Labels.Sort();
+	return Labels;
+}
+
 bool SEpicodeFocusedShell::ProcessShortcutForSmokeTest(
 	const FKey& Key, bool bCtrl, bool bShift)
 {
@@ -740,7 +748,7 @@ TSharedRef<SWidget> SEpicodeFocusedShell::BuildMenuBar()
 		.Padding(FMargin(8.0f, 0.0f, 2.0f, 0.0f))
 		[
 			SNew(STextBlock)
-				.Text(LOCTEXT("FocusedModeLabel", "聚焦工作台 · 2.1"))
+				.Text(LOCTEXT("FocusedModeLabel", "聚焦工作台 · 3.x"))
 				.Font(FAppStyle::Get().GetFontStyle("SmallFont"))
 				.ColorAndOpacity(MutedTextColor())
 		];

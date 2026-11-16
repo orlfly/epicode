@@ -39,6 +39,7 @@ public:
 	void SetPanelsForSmokeTest(bool bLeftVisible, bool bRightVisible);
 	void OpenMenuForSmokeTest(const FString& Label);
 	void CloseMenuForSmokeTest(const FString& Label);
+	TArray<FString> GetMenuLabelsForSmokeTest() const;
 	bool ProcessShortcutForSmokeTest(const FKey& Key, bool bCtrl = false, bool bShift = false);
 	bool RetryViewportForSmokeTest();
 	bool ImportSceneFromFileForSmokeTest(const FString& SourcePath);
