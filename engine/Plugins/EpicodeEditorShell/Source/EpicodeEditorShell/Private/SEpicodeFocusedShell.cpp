@@ -16,6 +16,7 @@
 #include "Framework/Commands/GenericCommands.h"
 #include "Framework/MultiBox/MultiBoxBuilder.h"
 #include "HAL/FileManager.h"
+#include "HAL/PlatformProcess.h"
 #include "HAL/PlatformTime.h"
 #include "GameFramework/PlayerStart.h"
 #include "GameFramework/WorldSettings.h"
@@ -1708,6 +1709,31 @@ TSharedRef<SWidget> SEpicodeFocusedShell::MakeFilterButton(
 		];
 }
 
+TSharedRef<SWidget> SEpicodeFocusedShell::MakeLibraryFilterButton(
+	const FString& Label, TFunction<bool()> IsActive, TFunction<void()> OnClicked)
+{
+	return SNew(SButton)
+		.ButtonStyle(FAppStyle::Get(), "Menu.Button")
+		.ContentPadding(FMargin(5.0f, 2.0f))
+		.ButtonColorAndOpacity_Lambda([IsActive = MoveTemp(IsActive)]()
+		{
+			return IsActive()
+				? FLinearColor(0.18f, 0.32f, 0.48f, 1.0f)
+				: FLinearColor(0.12f, 0.12f, 0.12f, 1.0f);
+		})
+		.OnClicked_Lambda([OnClicked = MoveTemp(OnClicked)]()
+		{
+			OnClicked();
+			return FReply::Handled();
+		})
+		[
+			SNew(STextBlock)
+				.Text(FText::FromString(Label))
+				.Font(FAppStyle::Get().GetFontStyle("SmallFont"))
+				.ColorAndOpacity(PanelTextColor())
+		];
+}
+
 TSharedRef<SWidget> SEpicodeFocusedShell::BuildLeftPanel()
 {
 	TSharedRef<SWidget> RefreshButton = SNew(SButton)
@@ -1845,14 +1871,117 @@ TSharedRef<SWidget> SEpicodeFocusedShell::BuildLeftPanel()
 				[
 					MakePanelHeader(
 						TEXT("资源库"),
-						SNew(STextBlock)
-							.Text_Lambda([this]()
-							{
-								return FText::FromString(FString::Printf(
-									TEXT("%d 项"), Model.GetAssets().Num()));
-							})
-							.Font(FAppStyle::Get().GetFontStyle("SmallFont"))
-							.ColorAndOpacity(MutedTextColor()))
+						SNew(SHorizontalBox)
+						+ SHorizontalBox::Slot()
+							.AutoWidth()
+							.VAlign(VAlign_Center)
+							.Padding(FMargin(0.0f, 0.0f, 4.0f, 0.0f))
+							[
+								SNew(STextBlock)
+									.Text_Lambda([this]()
+									{
+										return FText::FromString(FString::Printf(
+											TEXT("%d/%d 项"),
+											GetFilteredAssetCountForSmokeTest(),
+											Model.GetAssets().Num()));
+									})
+									.Font(FAppStyle::Get().GetFontStyle("SmallFont"))
+									.ColorAndOpacity(MutedTextColor())
+							]
+						+ SHorizontalBox::Slot()
+							.AutoWidth()
+							.VAlign(VAlign_Center)
+							[
+								SNew(SButton)
+									.ButtonStyle(FAppStyle::Get(), "Menu.Button")
+									.ContentPadding(FMargin(5.0f, 1.0f))
+									.ToolTipText(LOCTEXT("RefreshLibrary", "重新扫描本地库索引和资产注册表"))
+									.OnClicked_Lambda([this]()
+									{
+										RefreshLibrary();
+										return FReply::Handled();
+									})
+									[
+										SNew(STextBlock)
+											.Text(LOCTEXT("RefreshLibraryLabel", "刷新"))
+											.Font(FAppStyle::Get().GetFontStyle("SmallFont"))
+									]
+							])
+				]
+			+ SVerticalBox::Slot()
+				.AutoHeight()
+				.Padding(FMargin(0.0f, 0.0f, 0.0f, 3.0f))
+				[
+					SNew(SHorizontalBox)
+					+ SHorizontalBox::Slot()
+						.FillWidth(1.0f)
+						.Padding(FMargin(0.0f, 0.0f, 2.0f, 0.0f))
+						[
+							SAssignNew(AssetSearchBox, SEditableTextBox)
+								.HintText(LOCTEXT("SearchAssets", "搜索资源"))
+								.OnTextChanged_Lambda([this](const FText& NewText)
+								{
+									AssetSearch = NewText.ToString();
+									RefreshAssetList();
+								})
+						]
+					+ SHorizontalBox::Slot()
+						.FillWidth(1.0f)
+						.Padding(FMargin(2.0f, 0.0f, 0.0f, 0.0f))
+						[
+							SAssignNew(AssetTagFilterBox, SEditableTextBox)
+								.HintText(LOCTEXT("FilterAssetTags", "标签过滤"))
+								.OnTextChanged_Lambda([this](const FText& NewText)
+								{
+									AssetTagFilter = NewText.ToString();
+									RefreshAssetList();
+								})
+						]
+				]
+			+ SVerticalBox::Slot()
+				.AutoHeight()
+				.Padding(FMargin(0.0f, 0.0f, 0.0f, 3.0f))
+				[
+					SNew(SHorizontalBox)
+					+ SHorizontalBox::Slot()
+						.AutoWidth()
+						.Padding(FMargin(0.0f, 0.0f, 2.0f, 0.0f))
+						[
+							MakeLibraryFilterButton(
+								TEXT("全部"),
+								[this]() { return AssetTypeFilter == TEXT("All"); },
+								[this]()
+								{
+									AssetTypeFilter = TEXT("All");
+									RefreshAssetList();
+								})
+						]
+					+ SHorizontalBox::Slot()
+						.AutoWidth()
+						.Padding(FMargin(2.0f, 0.0f))
+						[
+							MakeLibraryFilterButton(
+								TEXT("角色"),
+								[this]() { return AssetTypeFilter == TEXT("Character"); },
+								[this]()
+								{
+									AssetTypeFilter = TEXT("Character");
+									RefreshAssetList();
+								})
+						]
+					+ SHorizontalBox::Slot()
+						.AutoWidth()
+						.Padding(FMargin(2.0f, 0.0f))
+						[
+							MakeLibraryFilterButton(
+								TEXT("物品"),
+								[this]() { return AssetTypeFilter == TEXT("Prop"); },
+								[this]()
+								{
+									AssetTypeFilter = TEXT("Prop");
+									RefreshAssetList();
+								})
+						]
 				]
 			+ SVerticalBox::Slot()
 				.FillHeight(0.25f)
@@ -1874,14 +2003,72 @@ TSharedRef<SWidget> SEpicodeFocusedShell::BuildLeftPanel()
 				[
 					MakePanelHeader(
 						TEXT("本地库"),
-						SNew(STextBlock)
-							.Text_Lambda([this]()
-							{
-								return FText::FromString(FString::Printf(
-									TEXT("%d 场景"), Model.GetSceneCount()));
-							})
-							.Font(FAppStyle::Get().GetFontStyle("SmallFont"))
-							.ColorAndOpacity(MutedTextColor()))
+						SNew(SHorizontalBox)
+						+ SHorizontalBox::Slot()
+							.AutoWidth()
+							.VAlign(VAlign_Center)
+							.Padding(FMargin(0.0f, 0.0f, 4.0f, 0.0f))
+							[
+								SNew(STextBlock)
+									.Text_Lambda([this]()
+									{
+										return FText::FromString(FString::Printf(
+											TEXT("%d/%d 场景"),
+											GetFilteredSceneCountForSmokeTest(),
+											Model.GetSceneCount()));
+									})
+									.Font(FAppStyle::Get().GetFontStyle("SmallFont"))
+									.ColorAndOpacity(MutedTextColor())
+							]
+						+ SHorizontalBox::Slot()
+							.AutoWidth()
+							.VAlign(VAlign_Center)
+							[
+								SNew(SButton)
+									.ButtonStyle(FAppStyle::Get(), "Menu.Button")
+									.ContentPadding(FMargin(5.0f, 1.0f))
+									.ToolTipText(LOCTEXT("RefreshSceneLibrary", "重新扫描场景库和索引"))
+									.OnClicked_Lambda([this]()
+									{
+										RefreshLibrary();
+										return FReply::Handled();
+									})
+									[
+										SNew(STextBlock)
+											.Text(LOCTEXT("RefreshSceneLibraryLabel", "刷新"))
+											.Font(FAppStyle::Get().GetFontStyle("SmallFont"))
+									]
+							])
+				]
+			+ SVerticalBox::Slot()
+				.AutoHeight()
+				.Padding(FMargin(0.0f, 0.0f, 0.0f, 3.0f))
+				[
+					SNew(SHorizontalBox)
+					+ SHorizontalBox::Slot()
+						.FillWidth(1.0f)
+						.Padding(FMargin(0.0f, 0.0f, 2.0f, 0.0f))
+						[
+							SAssignNew(SceneSearchBox, SEditableTextBox)
+								.HintText(LOCTEXT("SearchScenes", "搜索场景"))
+								.OnTextChanged_Lambda([this](const FText& NewText)
+								{
+									SceneSearch = NewText.ToString();
+									RefreshSceneList();
+								})
+						]
+					+ SHorizontalBox::Slot()
+						.FillWidth(1.0f)
+						.Padding(FMargin(2.0f, 0.0f, 0.0f, 0.0f))
+						[
+							SAssignNew(SceneTagFilterBox, SEditableTextBox)
+								.HintText(LOCTEXT("FilterSceneTags", "标签过滤"))
+								.OnTextChanged_Lambda([this](const FText& NewText)
+								{
+									SceneTagFilter = NewText.ToString();
+									RefreshSceneList();
+								})
+						]
 				]
 			+ SVerticalBox::Slot()
 				.AutoHeight()
@@ -2340,6 +2527,178 @@ void SEpicodeFocusedShell::RefreshObjectList()
 	}
 }
 
+bool SEpicodeFocusedShell::MatchesAssetFilter(const FEpicodeFocusedAssetRow& Row) const
+{
+	if (AssetTypeFilter != TEXT("All") && Row.Type != AssetTypeFilter)
+	{
+		return false;
+	}
+	auto MatchesTags = [](const TArray<FString>& Tags, const FString& Filter)
+	{
+		if (Filter.IsEmpty())
+		{
+			return true;
+		}
+		for (const FString& Tag : Tags)
+		{
+			if (Tag.Contains(Filter, ESearchCase::IgnoreCase))
+			{
+				return true;
+			}
+		}
+		return false;
+	};
+	if (!MatchesTags(Row.Tags, AssetTagFilter))
+	{
+		return false;
+	}
+	if (AssetSearch.IsEmpty())
+	{
+		return true;
+	}
+	if (Row.Name.Contains(AssetSearch, ESearchCase::IgnoreCase)
+		|| Row.AssetPath.Contains(AssetSearch, ESearchCase::IgnoreCase))
+	{
+		return true;
+	}
+	for (const FString& Tag : Row.Tags)
+	{
+		if (Tag.Contains(AssetSearch, ESearchCase::IgnoreCase))
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+bool SEpicodeFocusedShell::MatchesSceneFilter(const FEpicodeFocusedSceneRow& Row) const
+{
+	if (!SceneTagFilter.IsEmpty())
+	{
+		bool bTagMatch = false;
+		for (const FString& Tag : Row.Tags)
+		{
+			if (Tag.Contains(SceneTagFilter, ESearchCase::IgnoreCase))
+			{
+				bTagMatch = true;
+				break;
+			}
+		}
+		if (!bTagMatch)
+		{
+			return false;
+		}
+	}
+	return SceneSearch.IsEmpty()
+		|| Row.Name.Contains(SceneSearch, ESearchCase::IgnoreCase)
+		|| Row.Id.Contains(SceneSearch, ESearchCase::IgnoreCase);
+}
+
+int32 SEpicodeFocusedShell::GetFilteredAssetCountForSmokeTest() const
+{
+	int32 Count = 0;
+	for (const FEpicodeFocusedAssetRow& Row : Model.GetAssets())
+	{
+		Count += MatchesAssetFilter(Row) ? 1 : 0;
+	}
+	return Count;
+}
+
+int32 SEpicodeFocusedShell::GetFilteredSceneCountForSmokeTest() const
+{
+	int32 Count = 0;
+	for (const FEpicodeFocusedSceneRow& Row : Model.GetScenes())
+	{
+		Count += MatchesSceneFilter(Row) ? 1 : 0;
+	}
+	return Count;
+}
+
+FString SEpicodeFocusedShell::GetFirstSceneNameForSmokeTest() const
+{
+	const TArray<FEpicodeFocusedSceneRow>& Scenes = Model.GetScenes();
+	return Scenes.IsEmpty() ? FString() : Scenes[0].Name;
+}
+
+void SEpicodeFocusedShell::SetAssetSearchForSmokeTest(const FString& InSearch)
+{
+	AssetSearch = InSearch;
+	RefreshAssetList();
+}
+
+void SEpicodeFocusedShell::SetAssetTagFilterForSmokeTest(const FString& InTag)
+{
+	AssetTagFilter = InTag;
+	RefreshAssetList();
+}
+
+void SEpicodeFocusedShell::SetAssetTypeFilterForSmokeTest(const FString& InType)
+{
+	AssetTypeFilter = InType;
+	RefreshAssetList();
+}
+
+void SEpicodeFocusedShell::SetSceneSearchForSmokeTest(const FString& InSearch)
+{
+	SceneSearch = InSearch;
+	RefreshSceneList();
+}
+
+void SEpicodeFocusedShell::SetSceneTagFilterForSmokeTest(const FString& InTag)
+{
+	SceneTagFilter = InTag;
+	RefreshSceneList();
+}
+
+void SEpicodeFocusedShell::RefreshLibraryForSmokeTest()
+{
+	RefreshLibrary();
+}
+
+void SEpicodeFocusedShell::RefreshLibrary()
+{
+	Model.Refresh();
+	Model.RefreshAssets();
+	LastSignature = Model.GetSignature();
+	LastAssetSignature = Model.GetAssetSignature();
+	RefreshObjectList();
+	RefreshAssetList();
+	RefreshSceneList();
+	RefreshStatus();
+}
+
+void SEpicodeFocusedShell::LocateAsset(const FString& AssetPath)
+{
+	FString PackageName = AssetPath;
+	int32 DotIndex = INDEX_NONE;
+	if (PackageName.FindChar(TEXT('.'), DotIndex))
+	{
+		PackageName.LeftInline(DotIndex);
+	}
+	const FString Filename = FPackageName::LongPackageNameToFilename(
+		PackageName, FPackageName::GetAssetPackageExtension());
+	const FString Directory = FPaths::GetPath(Filename);
+	if (FPaths::DirectoryExists(Directory))
+	{
+		FPlatformProcess::ExploreFolder(*Directory);
+		return;
+	}
+	Model.SetLastMessage(FString::Printf(TEXT("无法定位资产目录：%s"), *Directory));
+	RefreshStatus();
+}
+
+void SEpicodeFocusedShell::LocateSceneFile(const FString& ScenePath)
+{
+	const FString Directory = FPaths::GetPath(ScenePath);
+	if (FPaths::DirectoryExists(Directory))
+	{
+		FPlatformProcess::ExploreFolder(*Directory);
+		return;
+	}
+	Model.SetLastMessage(FString::Printf(TEXT("无法定位场景目录：%s"), *Directory));
+	RefreshStatus();
+}
+
 void SEpicodeFocusedShell::RefreshAssetList()
 {
 	if (!AssetListBox.IsValid())
@@ -2348,14 +2707,16 @@ void SEpicodeFocusedShell::RefreshAssetList()
 	}
 
 	AssetListBox->ClearChildren();
-	if (Model.GetAssets().IsEmpty())
+	if (GetFilteredAssetCountForSmokeTest() == 0)
 	{
 		AssetListBox->AddSlot()
 			.AutoHeight()
 			.Padding(FMargin(6.0f, 8.0f))
 			[
 				SNew(STextBlock)
-					.Text(LOCTEXT("EmptyAssetLibrary", "本地库暂无角色/物品资源，可从角色或物品菜单导入"))
+					.Text(Model.GetAssets().IsEmpty()
+						? LOCTEXT("EmptyAssetLibrary", "本地库暂无角色/物品资源，可从角色或物品菜单导入")
+						: LOCTEXT("NoMatchingAssets", "没有匹配的资源；清空搜索或标签过滤"))
 					.Font(FAppStyle::Get().GetFontStyle("SmallFont"))
 					.ColorAndOpacity(MutedTextColor())
 					.AutoWrapText(true)
@@ -2365,31 +2726,65 @@ void SEpicodeFocusedShell::RefreshAssetList()
 
 	for (const FEpicodeFocusedAssetRow& Row : Model.GetAssets())
 	{
+		if (!MatchesAssetFilter(Row))
+		{
+			continue;
+		}
 		const FString TypeLabel = Row.Type == TEXT("Character") ? TEXT("角色") : TEXT("物品");
 		const FString MissingSuffix = Row.bAvailable ? FString() : TEXT(" · 缺失");
-		const FString Tooltip = Row.bAvailable
-			? Row.AssetPath
-			: FString::Printf(TEXT("%s\n%s"), *Row.AssetPath, *Row.Error);
+		FString Tooltip = Row.AssetPath;
+		if (!Row.Tags.IsEmpty())
+		{
+			Tooltip += FString::Printf(TEXT("\n标签: %s"), *FString::Join(Row.Tags, TEXT(", ")));
+		}
+		if (!Row.bAvailable)
+		{
+			Tooltip += FString::Printf(TEXT("\n%s"), *Row.Error);
+		}
 		AssetListBox->AddSlot()
 			.AutoHeight()
 			.Padding(FMargin(0.0f, 1.0f))
 			[
-				SNew(SButton)
-					.ButtonStyle(FAppStyle::Get(), "Menu.Button")
-					.ContentPadding(FMargin(6.0f, 3.0f))
-					.ToolTipText(FText::FromString(Tooltip))
-					.IsEnabled(Row.bAvailable)
-					.OnClicked_Lambda([this, AssetPath = Row.AssetPath, AssetType = Row.Type]()
-					{
-						PlaceAsset(AssetPath, AssetType);
-						return FReply::Handled();
-					})
+				SNew(SHorizontalBox)
+				+ SHorizontalBox::Slot()
+					.FillWidth(1.0f)
 					[
-						SNew(STextBlock)
-							.Text(FText::FromString(FString::Printf(
-								TEXT("%s  · %s%s"), *Row.Name, *TypeLabel, *MissingSuffix)))
-							.Font(FAppStyle::Get().GetFontStyle("SmallFont"))
-							.ColorAndOpacity(Row.bAvailable ? PanelTextColor() : MutedTextColor())
+						SNew(SButton)
+							.ButtonStyle(FAppStyle::Get(), "Menu.Button")
+							.ContentPadding(FMargin(6.0f, 3.0f))
+							.ToolTipText(FText::FromString(Tooltip))
+							.IsEnabled(Row.bAvailable)
+							.OnClicked_Lambda([this, AssetPath = Row.AssetPath, AssetType = Row.Type]()
+							{
+								PlaceAsset(AssetPath, AssetType);
+								return FReply::Handled();
+							})
+							[
+								SNew(STextBlock)
+									.Text(FText::FromString(FString::Printf(
+										TEXT("%s  · %s%s"), *Row.Name, *TypeLabel, *MissingSuffix)))
+									.Font(FAppStyle::Get().GetFontStyle("SmallFont"))
+									.ColorAndOpacity(Row.bAvailable ? PanelTextColor() : MutedTextColor())
+							]
+					]
+				+ SHorizontalBox::Slot()
+					.AutoWidth()
+					.Padding(FMargin(2.0f, 0.0f, 0.0f, 0.0f))
+					[
+						SNew(SButton)
+							.ButtonStyle(FAppStyle::Get(), "Menu.Button")
+							.ContentPadding(FMargin(5.0f, 3.0f))
+							.ToolTipText(LOCTEXT("LocateAsset", "在文件管理器中定位资产目录"))
+							.OnClicked_Lambda([this, AssetPath = Row.AssetPath]()
+							{
+								LocateAsset(AssetPath);
+								return FReply::Handled();
+							})
+							[
+								SNew(STextBlock)
+									.Text(LOCTEXT("LocateAssetLabel", "定位"))
+									.Font(FAppStyle::Get().GetFontStyle("SmallFont"))
+							]
 					]
 			];
 	}
@@ -3319,14 +3714,16 @@ void SEpicodeFocusedShell::RefreshSceneList()
 	}
 
 	SceneListBox->ClearChildren();
-	if (Model.GetScenes().IsEmpty())
+	if (GetFilteredSceneCountForSmokeTest() == 0)
 	{
 		SceneListBox->AddSlot()
 			.AutoHeight()
 			.Padding(FMargin(6.0f, 8.0f))
 			[
 				SNew(STextBlock)
-					.Text(LOCTEXT("EmptyLibrary", "本地库为空"))
+					.Text(Model.GetScenes().IsEmpty()
+						? LOCTEXT("EmptyLibrary", "本地库为空")
+						: LOCTEXT("NoMatchingScenes", "没有匹配的场景；清空搜索或标签过滤"))
 					.Font(FAppStyle::Get().GetFontStyle("SmallFont"))
 					.ColorAndOpacity(MutedTextColor())
 			];
@@ -3335,6 +3732,10 @@ void SEpicodeFocusedShell::RefreshSceneList()
 
 	for (const FEpicodeFocusedSceneRow& Row : Model.GetScenes())
 	{
+		if (!MatchesSceneFilter(Row))
+		{
+			continue;
+		}
 		const FString Label = FString::Printf(
 			TEXT("%s %s%s"),
 			Row.bCurrent ? TEXT("●") : TEXT("○"),
@@ -3355,7 +3756,7 @@ void SEpicodeFocusedShell::RefreshSceneList()
 				TEXT("ID %s%s"),
 				*Row.Id.Left(8),
 				Row.bAvailable ? TEXT("") : TEXT(" · 不可用"));
-		const FString Tooltip = Entry
+		FString Tooltip = Entry
 			? FString::Printf(
 				TEXT("sceneId: %s\nlevelPath: %s\n实体数: %d\n修改时间: %s\n状态: %s"),
 				*Row.Id,
@@ -3364,38 +3765,71 @@ void SEpicodeFocusedShell::RefreshSceneList()
 				*Modified,
 				Row.bAvailable ? TEXT("可用") : *Entry->Error)
 			: FString::Printf(TEXT("sceneId: %s"), *Row.Id);
+		if (!Row.Tags.IsEmpty())
+		{
+			Tooltip += FString::Printf(
+				TEXT("\n标签: %s"), *FString::Join(Row.Tags, TEXT(", ")));
+		}
 
 		SceneListBox->AddSlot()
 			.AutoHeight()
 			.Padding(FMargin(0.0f, 1.0f))
 			[
-				SNew(SButton)
-					.ButtonStyle(FAppStyle::Get(), "Menu.Button")
-					.ContentPadding(FMargin(6.0f, 3.0f))
-					.ToolTipText(FText::FromString(Tooltip))
-					.IsEnabled(Row.bAvailable)
-					.OnClicked_Lambda([this, Id = Row.Id]()
-					{
-						OpenSceneById(Id);
-						return FReply::Handled();
-					})
+				SNew(SHorizontalBox)
+				+ SHorizontalBox::Slot()
+					.FillWidth(1.0f)
 					[
-						SNew(SVerticalBox)
-						+ SVerticalBox::Slot()
-							.AutoHeight()
+						SNew(SButton)
+							.ButtonStyle(FAppStyle::Get(), "Menu.Button")
+							.ContentPadding(FMargin(6.0f, 3.0f))
+							.ToolTipText(FText::FromString(Tooltip))
+							.IsEnabled(Row.bAvailable)
+							.OnClicked_Lambda([this, Id = Row.Id]()
+							{
+								OpenSceneById(Id);
+								return FReply::Handled();
+							})
 							[
-								SNew(STextBlock)
-									.Text(FText::FromString(Label))
-									.Font(FAppStyle::Get().GetFontStyle("SmallFont"))
-									.ColorAndOpacity(Row.bCurrent ? AccentTextColor() : PanelTextColor())
+								SNew(SVerticalBox)
+								+ SVerticalBox::Slot()
+									.AutoHeight()
+									[
+										SNew(STextBlock)
+											.Text(FText::FromString(Label))
+											.Font(FAppStyle::Get().GetFontStyle("SmallFont"))
+											.ColorAndOpacity(Row.bCurrent ? AccentTextColor() : PanelTextColor())
+									]
+								+ SVerticalBox::Slot()
+									.AutoHeight()
+									[
+										SNew(STextBlock)
+											.Text(FText::FromString(Detail))
+											.Font(FAppStyle::Get().GetFontStyle("SmallFont"))
+											.ColorAndOpacity(MutedTextColor())
+									]
 							]
-						+ SVerticalBox::Slot()
-							.AutoHeight()
+					]
+				+ SHorizontalBox::Slot()
+					.AutoWidth()
+					.Padding(FMargin(2.0f, 0.0f, 0.0f, 0.0f))
+					[
+						SNew(SButton)
+							.ButtonStyle(FAppStyle::Get(), "Menu.Button")
+							.ContentPadding(FMargin(5.0f, 3.0f))
+							.ToolTipText(LOCTEXT("LocateScene", "在文件管理器中定位场景目录"))
+							.IsEnabled(Entry != nullptr)
+							.OnClicked_Lambda([this, ScenePath = Entry ? Entry->Path : FString()]()
+							{
+								if (!ScenePath.IsEmpty())
+								{
+									LocateSceneFile(ScenePath);
+								}
+								return FReply::Handled();
+							})
 							[
 								SNew(STextBlock)
-									.Text(FText::FromString(Detail))
+									.Text(LOCTEXT("LocateSceneLabel", "定位"))
 									.Font(FAppStyle::Get().GetFontStyle("SmallFont"))
-									.ColorAndOpacity(MutedTextColor())
 							]
 					]
 			];

@@ -67,6 +67,16 @@ public:
 	FString GetInspectorSummaryForSmokeTest() const;
 	int32 GetEntityCountForSmokeTest() const { return Model.GetEntityCount(); }
 	int32 GetAssetCountForSmokeTest() const { return Model.GetAssets().Num(); }
+	int32 GetSceneCountForSmokeTest() const { return Model.GetScenes().Num(); }
+	int32 GetFilteredAssetCountForSmokeTest() const;
+	int32 GetFilteredSceneCountForSmokeTest() const;
+	FString GetFirstSceneNameForSmokeTest() const;
+	void SetAssetSearchForSmokeTest(const FString& InSearch);
+	void SetAssetTagFilterForSmokeTest(const FString& InTag);
+	void SetAssetTypeFilterForSmokeTest(const FString& InType);
+	void SetSceneSearchForSmokeTest(const FString& InSearch);
+	void SetSceneTagFilterForSmokeTest(const FString& InTag);
+	void RefreshLibraryForSmokeTest();
 	FString GetWidgetModeForSmokeTest() const { return GetTransformModeLabel(); }
 	void FocusViewport();
 	void SelectFirstActorForSmokeTest();
@@ -83,6 +93,8 @@ private:
 	TSharedRef<SWidget> BuildEmptyStateBanner();
 	TSharedRef<SWidget> MakeMenuCombo(const FString& Label, TFunction<TSharedRef<SWidget>()> InBuildMenu);
 	TSharedRef<SWidget> MakeFilterButton(const FString& Label, const FString& Value);
+	TSharedRef<SWidget> MakeLibraryFilterButton(
+		const FString& Label, TFunction<bool()> IsActive, TFunction<void()> OnClicked);
 	TSharedRef<SWidget> MakePanelHeader(const FString& Title, TSharedRef<SWidget> Extra);
 	TSharedRef<SWidget> MakeInspectorRow(const FString& Label, TSharedRef<SWidget> Value);
 	TSharedRef<SWidget> MakeInspectorSection(const FString& Title);
@@ -142,6 +154,11 @@ private:
 	void RefreshInspector();
 	void RefreshSceneList();
 	void RefreshStatus();
+	void RefreshLibrary();
+	bool MatchesAssetFilter(const FEpicodeFocusedAssetRow& Row) const;
+	bool MatchesSceneFilter(const FEpicodeFocusedSceneRow& Row) const;
+	void LocateAsset(const FString& AssetPath);
+	void LocateSceneFile(const FString& ScenePath);
 	void SyncSelectionFromViewport();
 	void SelectEntity(const FGuid& InId, bool bFocus);
 	void AddChatLine(const FString& Speaker, const FString& Text);
@@ -198,6 +215,10 @@ private:
 	TSharedPtr<STextBlock> InspectorTypeText;
 	TSharedPtr<SVerticalBox> SceneListBox;
 	TSharedPtr<SVerticalBox> AssetListBox;
+	TSharedPtr<SEditableTextBox> AssetSearchBox;
+	TSharedPtr<SEditableTextBox> AssetTagFilterBox;
+	TSharedPtr<SEditableTextBox> SceneSearchBox;
+	TSharedPtr<SEditableTextBox> SceneTagFilterBox;
 	TSharedPtr<SVerticalBox> ChatHistoryBox;
 	TSharedPtr<SScrollBox> ChatScroll;
 	TMap<FString, TSharedPtr<class SComboButton>> MenuCombos;
@@ -214,6 +235,11 @@ private:
 
 	FString ObjectSearch;
 	FString TypeFilter = TEXT("All");
+	FString AssetSearch;
+	FString AssetTagFilter;
+	FString AssetTypeFilter = TEXT("All");
+	FString SceneSearch;
+	FString SceneTagFilter;
 	FString LastSignature;
 	FString LastAssetSignature;
 	FString LastInspectorSignature;

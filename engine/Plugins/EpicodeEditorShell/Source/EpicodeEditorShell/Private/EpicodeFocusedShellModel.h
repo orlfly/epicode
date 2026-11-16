@@ -21,6 +21,7 @@ struct FEpicodeFocusedSceneRow
 	FString Name;
 	bool bCurrent = false;
 	bool bAvailable = true;
+	TArray<FString> Tags;
 };
 
 struct FEpicodeFocusedAssetRow
@@ -30,6 +31,7 @@ struct FEpicodeFocusedAssetRow
 	FString Type;
 	bool bAvailable = true;
 	FString Error;
+	TArray<FString> Tags;
 };
 
 /**

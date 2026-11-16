@@ -322,4 +322,99 @@ bool FEpicodeEditorShellInspectorTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FEpicodeEditorShellLibraryPanelTest,
+	"Epicode.EditorShell.LibraryPanel",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FEpicodeEditorShellLibraryPanelTest::RunTest(const FString& Parameters)
+{
+	FScopedEditorShellLayout LayoutGuard;
+	TSharedRef<SEpicodeFocusedShell> Shell = SNew(SEpicodeFocusedShell);
+
+	const int32 SceneCount = Shell->GetSceneCountForSmokeTest();
+	TestEqual(
+		TEXT("all scenes visible by default"),
+		Shell->GetFilteredSceneCountForSmokeTest(),
+		SceneCount);
+	if (SceneCount > 0)
+	{
+		const FString FirstScene = Shell->GetFirstSceneNameForSmokeTest();
+		TestFalse(TEXT("first scene name available"), FirstScene.IsEmpty());
+		Shell->SetSceneSearchForSmokeTest(FirstScene);
+		TestTrue(
+			TEXT("scene search keeps matching rows"),
+			Shell->GetFilteredSceneCountForSmokeTest() >= 1);
+		TestTrue(
+			TEXT("scene search narrows rows"),
+			Shell->GetFilteredSceneCountForSmokeTest() <= SceneCount);
+
+		Shell->SetSceneSearchForSmokeTest(TEXT("NoSuchSceneZZZ"));
+		TestEqual(
+			TEXT("scene search empty state"),
+			Shell->GetFilteredSceneCountForSmokeTest(),
+			0);
+		Shell->SetSceneSearchForSmokeTest(TEXT(""));
+		TestEqual(
+			TEXT("scene search cleared"),
+			Shell->GetFilteredSceneCountForSmokeTest(),
+			SceneCount);
+	}
+
+	Shell->SetSceneTagFilterForSmokeTest(TEXT("NoSuchTagZZZ"));
+	TestEqual(
+		TEXT("scene tag filter empty state"),
+		Shell->GetFilteredSceneCountForSmokeTest(),
+		0);
+	Shell->SetSceneTagFilterForSmokeTest(TEXT(""));
+	TestEqual(
+		TEXT("scene tag filter cleared"),
+		Shell->GetFilteredSceneCountForSmokeTest(),
+		SceneCount);
+
+	const int32 AssetCount = Shell->GetAssetCountForSmokeTest();
+	Shell->SetAssetSearchForSmokeTest(TEXT("NoSuchAssetZZZ"));
+	TestEqual(
+		TEXT("asset search empty state"),
+		Shell->GetFilteredAssetCountForSmokeTest(),
+		0);
+	Shell->SetAssetSearchForSmokeTest(TEXT(""));
+	TestEqual(
+		TEXT("asset search cleared"),
+		Shell->GetFilteredAssetCountForSmokeTest(),
+		AssetCount);
+
+	Shell->SetAssetTagFilterForSmokeTest(TEXT("NoSuchTagZZZ"));
+	TestEqual(
+		TEXT("asset tag filter empty state"),
+		Shell->GetFilteredAssetCountForSmokeTest(),
+		0);
+	Shell->SetAssetTagFilterForSmokeTest(TEXT(""));
+
+	Shell->SetAssetTypeFilterForSmokeTest(TEXT("Character"));
+	TestTrue(
+		TEXT("character filter within total"),
+		Shell->GetFilteredAssetCountForSmokeTest() <= AssetCount);
+	Shell->SetAssetTypeFilterForSmokeTest(TEXT("Prop"));
+	TestTrue(
+		TEXT("prop filter within total"),
+		Shell->GetFilteredAssetCountForSmokeTest() <= AssetCount);
+	Shell->SetAssetTypeFilterForSmokeTest(TEXT("All"));
+	TestEqual(
+		TEXT("asset type filter cleared"),
+		Shell->GetFilteredAssetCountForSmokeTest(),
+		AssetCount);
+
+	Shell->RefreshLibraryForSmokeTest();
+	TestEqual(
+		TEXT("manual refresh preserves scenes"),
+		Shell->GetSceneCountForSmokeTest(),
+		SceneCount);
+	TestEqual(
+		TEXT("manual refresh preserves assets"),
+		Shell->GetAssetCountForSmokeTest(),
+		AssetCount);
+	return true;
+}
+
 #endif

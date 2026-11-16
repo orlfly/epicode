@@ -37,6 +37,11 @@ UEpicodeSceneSubsystem* FEpicodeFocusedShellModel::GetSceneSubsystem() const
 
 void FEpicodeFocusedShellModel::Refresh()
 {
+	TMap<FString, TArray<FString>> PreviousSceneTags;
+	for (const FEpicodeFocusedSceneRow& Row : Scenes)
+	{
+		PreviousSceneTags.Add(Row.Id, Row.Tags);
+	}
 	Entities.Reset();
 	Scenes.Reset();
 	bHasScene = false;
@@ -59,6 +64,15 @@ void FEpicodeFocusedShellModel::Refresh()
 		Row.Name = Entry.Name;
 		Row.bCurrent = Entry.bCurrent;
 		Row.bAvailable = Entry.bAvailable;
+		if (const FEpicodeLibraryEntry* IndexEntry = LocalLibrary.FindEntry(
+			FString::Printf(TEXT("scene:%s"), *Entry.SceneId)))
+		{
+			Row.Tags = IndexEntry->Tags;
+		}
+		else if (const TArray<FString>* OldTags = PreviousSceneTags.Find(Entry.SceneId))
+		{
+			Row.Tags = *OldTags;
+		}
 		Scenes.Add(MoveTemp(Row));
 	}
 
@@ -122,6 +136,7 @@ void FEpicodeFocusedShellModel::RefreshAssets()
 			: TEXT("Prop");
 		Row.bAvailable = Entry.bAvailable;
 		Row.Error = Entry.Error;
+		Row.Tags = Entry.Tags;
 		Assets.Add(MoveTemp(Row));
 	}
 
@@ -129,6 +144,14 @@ void FEpicodeFocusedShellModel::RefreshAssets()
 	{
 		return Left.Name < Right.Name;
 	});
+
+	for (FEpicodeFocusedSceneRow& Row : Scenes)
+	{
+		if (const FEpicodeLibraryEntry* Entry = FindLibraryScene(Row.Id))
+		{
+			Row.Tags = Entry->Tags;
+		}
+	}
 }
 
 namespace
