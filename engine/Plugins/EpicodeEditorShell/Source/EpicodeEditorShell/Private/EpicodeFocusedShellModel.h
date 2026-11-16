@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "EpicodeCommand.h"
+#include "EpicodeLocalLibrary.h"
 
 class UEpicodeSceneSubsystem;
 
@@ -27,6 +28,8 @@ struct FEpicodeFocusedAssetRow
 	FString Name;
 	FString AssetPath;
 	FString Type;
+	bool bAvailable = true;
+	FString Error;
 };
 
 /**
@@ -62,6 +65,7 @@ public:
 
 	const FEpicodeFocusedEntityRow* FindEntity(const FGuid& InId) const;
 	const FEpicodeEntityRecord* GetSelectedEntityRecord() const;
+	const FEpicodeLibraryEntry* FindLibraryScene(const FString& SceneId) const;
 	FGuid GetActiveCameraId() const;
 	FString GetSelectedEntityLabel() const;
 	FString GetSignature() const;
@@ -78,6 +82,7 @@ private:
 	FString SceneName;
 	FString SceneId;
 	FString LastMessage;
+	FEpicodeLocalLibrary LocalLibrary;
 	uint64 Revision = 0;
 	bool bHasScene = false;
 	bool bDirty = false;

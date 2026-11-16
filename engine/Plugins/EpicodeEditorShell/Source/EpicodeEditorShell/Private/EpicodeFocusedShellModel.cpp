@@ -1,14 +1,8 @@
 #include "EpicodeFocusedShellModel.h"
 
 #include "EpicodeEngineSubsystem.h"
-#include "EpicodeSettings.h"
 #include "EpicodeSceneSubsystem.h"
 #include "EpicodeTypes.h"
-#include "AssetRegistry/AssetData.h"
-#include "AssetRegistry/AssetRegistryModule.h"
-#include "AssetRegistry/IAssetRegistry.h"
-#include "Engine/SkeletalMesh.h"
-#include "Engine/StaticMesh.h"
 #include "HAL/FileManager.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
@@ -102,42 +96,32 @@ void FEpicodeFocusedShellModel::RefreshAssets()
 	LoadHiddenAssets();
 	Assets.Reset();
 
-	FAssetRegistryModule& AssetRegistryModule =
-		FModuleManager::LoadModuleChecked<FAssetRegistryModule>(TEXT("AssetRegistry"));
-	IAssetRegistry& AssetRegistry = AssetRegistryModule.Get();
-
-	FARFilter Filter;
-	Filter.PackagePaths.Add(FName(*UEpicodeSettings::Get()->ImportContentRoot));
-	Filter.bRecursivePaths = true;
-
-	TArray<FAssetData> AssetDataList;
-	AssetRegistry.GetAssets(Filter, AssetDataList);
-	for (const FAssetData& AssetData : AssetDataList)
+	FString Error;
+	if (!LocalLibrary.Refresh(Error))
 	{
-		const FTopLevelAssetPath ClassPath = AssetData.AssetClassPath;
-		FString Type;
-		if (ClassPath == USkeletalMesh::StaticClass()->GetClassPathName())
-		{
-			Type = TEXT("Character");
-		}
-		else if (ClassPath == UStaticMesh::StaticClass()->GetClassPathName())
-		{
-			Type = TEXT("Prop");
-		}
-		else
-		{
-			continue;
-		}
+		LastMessage = FString::Printf(TEXT("本地库索引刷新失败：%s"), *Error);
+		return;
+	}
+	if (!LocalLibrary.GetLastWarning().IsEmpty())
+	{
+		LastMessage = LocalLibrary.GetLastWarning();
+	}
 
-		const FString AssetPath = AssetData.GetObjectPathString();
-		if (HiddenAssetPaths.Contains(AssetPath))
+	for (const FEpicodeLibraryEntry& Entry : LocalLibrary.GetEntries())
+	{
+		if (Entry.Type == EEpicodeLibraryEntryType::Scene
+			|| HiddenAssetPaths.Contains(Entry.Path))
 		{
 			continue;
 		}
 		FEpicodeFocusedAssetRow Row;
-		Row.Name = AssetData.AssetName.ToString();
-		Row.AssetPath = AssetPath;
-		Row.Type = Type;
+		Row.Name = Entry.Name;
+		Row.AssetPath = Entry.Path;
+		Row.Type = Entry.Type == EEpicodeLibraryEntryType::Character
+			? TEXT("Character")
+			: TEXT("Prop");
+		Row.bAvailable = Entry.bAvailable;
+		Row.Error = Entry.Error;
 		Assets.Add(MoveTemp(Row));
 	}
 
@@ -276,6 +260,12 @@ const FEpicodeEntityRecord* FEpicodeFocusedShellModel::GetSelectedEntityRecord()
 	return Scene->FindEntity(SelectedEntityId);
 }
 
+const FEpicodeLibraryEntry* FEpicodeFocusedShellModel::FindLibraryScene(
+	const FString& InSceneId) const
+{
+	return LocalLibrary.FindEntry(FString::Printf(TEXT("scene:%s"), *InSceneId));
+}
+
 FGuid FEpicodeFocusedShellModel::GetActiveCameraId() const
 {
 	UEpicodeSceneSubsystem* Scene = GetSceneSubsystem();
@@ -310,6 +300,8 @@ FString FEpicodeFocusedShellModel::GetAssetSignature() const
 	for (const FEpicodeFocusedAssetRow& Asset : Assets)
 	{
 		Signature += Asset.AssetPath;
+		Signature += TEXT("|");
+		Signature += Asset.bAvailable ? TEXT("1") : TEXT("0");
 		Signature += TEXT("|");
 	}
 	return Signature;

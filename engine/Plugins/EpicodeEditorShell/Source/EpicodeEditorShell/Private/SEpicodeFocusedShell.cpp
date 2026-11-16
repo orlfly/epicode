@@ -948,7 +948,7 @@ void SEpicodeFocusedShell::BuildAssetPlaceMenu(
 	bool bAny = false;
 	for (const FEpicodeFocusedAssetRow& Row : Model.GetAssets())
 	{
-		if (Row.Type != Type)
+		if (Row.Type != Type || !Row.bAvailable)
 		{
 			continue;
 		}
@@ -2366,6 +2366,10 @@ void SEpicodeFocusedShell::RefreshAssetList()
 	for (const FEpicodeFocusedAssetRow& Row : Model.GetAssets())
 	{
 		const FString TypeLabel = Row.Type == TEXT("Character") ? TEXT("角色") : TEXT("物品");
+		const FString MissingSuffix = Row.bAvailable ? FString() : TEXT(" · 缺失");
+		const FString Tooltip = Row.bAvailable
+			? Row.AssetPath
+			: FString::Printf(TEXT("%s\n%s"), *Row.AssetPath, *Row.Error);
 		AssetListBox->AddSlot()
 			.AutoHeight()
 			.Padding(FMargin(0.0f, 1.0f))
@@ -2373,7 +2377,8 @@ void SEpicodeFocusedShell::RefreshAssetList()
 				SNew(SButton)
 					.ButtonStyle(FAppStyle::Get(), "Menu.Button")
 					.ContentPadding(FMargin(6.0f, 3.0f))
-					.ToolTipText(FText::FromString(Row.AssetPath))
+					.ToolTipText(FText::FromString(Tooltip))
+					.IsEnabled(Row.bAvailable)
 					.OnClicked_Lambda([this, AssetPath = Row.AssetPath, AssetType = Row.Type]()
 					{
 						PlaceAsset(AssetPath, AssetType);
@@ -2382,9 +2387,9 @@ void SEpicodeFocusedShell::RefreshAssetList()
 					[
 						SNew(STextBlock)
 							.Text(FText::FromString(FString::Printf(
-								TEXT("%s  · %s"), *Row.Name, *TypeLabel)))
+								TEXT("%s  · %s%s"), *Row.Name, *TypeLabel, *MissingSuffix)))
 							.Font(FAppStyle::Get().GetFontStyle("SmallFont"))
-							.ColorAndOpacity(PanelTextColor())
+							.ColorAndOpacity(Row.bAvailable ? PanelTextColor() : MutedTextColor())
 					]
 			];
 	}
@@ -3335,6 +3340,30 @@ void SEpicodeFocusedShell::RefreshSceneList()
 			Row.bCurrent ? TEXT("●") : TEXT("○"),
 			*Row.Name,
 			Row.bCurrent ? TEXT(" · 当前") : TEXT(""));
+		const FEpicodeLibraryEntry* Entry = Model.FindLibraryScene(Row.Id);
+		const FString Modified = Entry && Entry->ModifiedAt.GetTicks() > 0
+			? Entry->ModifiedAt.ToString(TEXT("%Y-%m-%d %H:%M"))
+			: TEXT("未知时间");
+		const FString Detail = Entry
+			? FString::Printf(
+				TEXT("ID %s · %d 实体 · %s%s"),
+				*Row.Id.Left(8),
+				Entry->EntityCount,
+				*Modified.Right(11),
+				Row.bAvailable ? TEXT("") : TEXT(" · 不可用"))
+			: FString::Printf(
+				TEXT("ID %s%s"),
+				*Row.Id.Left(8),
+				Row.bAvailable ? TEXT("") : TEXT(" · 不可用"));
+		const FString Tooltip = Entry
+			? FString::Printf(
+				TEXT("sceneId: %s\nlevelPath: %s\n实体数: %d\n修改时间: %s\n状态: %s"),
+				*Row.Id,
+				Entry->LevelPath.IsEmpty() ? TEXT("(未保存)") : *Entry->LevelPath,
+				Entry->EntityCount,
+				*Modified,
+				Row.bAvailable ? TEXT("可用") : *Entry->Error)
+			: FString::Printf(TEXT("sceneId: %s"), *Row.Id);
 
 		SceneListBox->AddSlot()
 			.AutoHeight()
@@ -3343,6 +3372,7 @@ void SEpicodeFocusedShell::RefreshSceneList()
 				SNew(SButton)
 					.ButtonStyle(FAppStyle::Get(), "Menu.Button")
 					.ContentPadding(FMargin(6.0f, 3.0f))
+					.ToolTipText(FText::FromString(Tooltip))
 					.IsEnabled(Row.bAvailable)
 					.OnClicked_Lambda([this, Id = Row.Id]()
 					{
@@ -3350,10 +3380,23 @@ void SEpicodeFocusedShell::RefreshSceneList()
 						return FReply::Handled();
 					})
 					[
-						SNew(STextBlock)
-							.Text(FText::FromString(Label))
-							.Font(FAppStyle::Get().GetFontStyle("SmallFont"))
-							.ColorAndOpacity(Row.bCurrent ? AccentTextColor() : PanelTextColor())
+						SNew(SVerticalBox)
+						+ SVerticalBox::Slot()
+							.AutoHeight()
+							[
+								SNew(STextBlock)
+									.Text(FText::FromString(Label))
+									.Font(FAppStyle::Get().GetFontStyle("SmallFont"))
+									.ColorAndOpacity(Row.bCurrent ? AccentTextColor() : PanelTextColor())
+							]
+						+ SVerticalBox::Slot()
+							.AutoHeight()
+							[
+								SNew(STextBlock)
+									.Text(FText::FromString(Detail))
+									.Font(FAppStyle::Get().GetFontStyle("SmallFont"))
+									.ColorAndOpacity(MutedTextColor())
+							]
 					]
 			];
 	}
