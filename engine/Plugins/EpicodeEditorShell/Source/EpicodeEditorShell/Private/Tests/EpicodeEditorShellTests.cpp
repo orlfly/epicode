@@ -5,6 +5,8 @@
 #include "Containers/Ticker.h"
 #include "Editor.h"
 #include "Engine/StaticMesh.h"
+#include "EpicodeAssistantHistory.h"
+#include "EpicodeAssistantTypes.h"
 #include "EpicodeCommand.h"
 #include "EpicodeEngineSubsystem.h"
 #include "EpicodeLocalLibrary.h"
@@ -878,6 +880,89 @@ bool FEpicodeEditorShellAssetDeleteTest::RunTest(const FString& Parameters)
 		FString LibraryError;
 		Library.Refresh(LibraryError);
 	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FEpicodeAssistantChatTest,
+	"Epicode.Assistant.Chat",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FEpicodeAssistantChatTest::RunTest(const FString& Parameters)
+{
+	FScopedEditorShellLayout LayoutGuard;
+	const FString HistoryRoot = FPaths::Combine(
+		FPaths::ProjectSavedDir(),
+		TEXT("Epicode/Tests/AssistantChat"),
+		FGuid::NewGuid().ToString(EGuidFormats::Digits));
+	FConversationHistoryStore::FScopedRootOverride HistoryGuard(HistoryRoot);
+	IFileManager::Get().DeleteDirectory(*HistoryRoot, false, true);
+	IFileManager::Get().MakeDirectory(*HistoryRoot, true);
+
+	TSharedPtr<SEpicodeFocusedShell> Shell = SNew(SEpicodeFocusedShell);
+
+	TSharedPtr<FMockConversationBackend> Mock = MakeShared<FMockConversationBackend>();
+	Mock->ResponseChunks = { TEXT("先选中对象，"), TEXT("再设置位置。") };
+	Shell->SetAssistantBackendForSmokeTest(Mock);
+	TestEqual(TEXT("mock backend active"),
+		Shell->GetChatBackendNameForSmokeTest(), FString(TEXT("mock")));
+
+	TestTrue(TEXT("message accepted"),
+		Shell->SendChatMessageForSmokeTest(TEXT("如何移动对象？")));
+	for (int32 Poll = 0; Poll < 10; ++Poll)
+	{
+		Shell->PollChatForSmokeTest();
+	}
+	const FString Transcript = Shell->GetChatTranscriptForSmokeTest();
+	TestTrue(TEXT("user message in transcript"), Transcript.Contains(TEXT("如何移动对象？")));
+	TestTrue(TEXT("streamed assistant text"), Transcript.Contains(TEXT("再设置位置。")));
+	TestEqual(TEXT("stream completed"), Shell->GetChatStatusForSmokeTest(), FString(TEXT("生成完成")));
+
+	const FString ConversationId = Shell->GetChatConversationIdForSmokeTest();
+	TestFalse(TEXT("conversation id assigned"), ConversationId.IsEmpty());
+	const FString HistoryFile = FPaths::Combine(
+		FConversationHistoryStore::GetHistoryRoot(),
+		FConversationHistoryStore::SanitizeId(ConversationId) + TEXT(".json"));
+	TestTrue(TEXT("history file written"), IFileManager::Get().FileExists(*HistoryFile));
+
+	TestTrue(TEXT("conversation reloaded"),
+		Shell->LoadChatConversationForSmokeTest(ConversationId));
+	TestTrue(TEXT("reloaded transcript keeps assistant"),
+		Shell->GetChatTranscriptForSmokeTest().Contains(TEXT("先选中对象")));
+
+	TSharedPtr<FMockConversationBackend> ErrorBackend = MakeShared<FMockConversationBackend>();
+	ErrorBackend->ResponseChunks = { TEXT("部分回复") };
+	ErrorBackend->bErrorAfterChunks = true;
+	ErrorBackend->StreamErrorCode = TEXT("assistant_test_error");
+	ErrorBackend->StreamErrorMessage = TEXT("模拟后端失败");
+	Shell->SetAssistantBackendForSmokeTest(ErrorBackend);
+	TestTrue(TEXT("failing request accepted"),
+		Shell->SendChatMessageForSmokeTest(TEXT("触发失败")));
+	for (int32 Poll = 0; Poll < 10; ++Poll)
+	{
+		Shell->PollChatForSmokeTest();
+	}
+	TestEqual(TEXT("stream failed"), Shell->GetChatStatusForSmokeTest(), FString(TEXT("生成失败")));
+	TestTrue(TEXT("error surfaced"),
+		Shell->GetChatTranscriptForSmokeTest().Contains(TEXT("模拟后端失败")));
+
+	TSharedPtr<FMockConversationBackend> SlowBackend = MakeShared<FMockConversationBackend>();
+	SlowBackend->ResponseChunks = { TEXT("迟到") };
+	SlowBackend->PollsBeforeChunks = 100;
+	Shell->SetAssistantBackendForSmokeTest(SlowBackend);
+	TestTrue(TEXT("slow request accepted"),
+		Shell->SendChatMessageForSmokeTest(TEXT("停止测试")));
+	Shell->StopChatForSmokeTest();
+	TestEqual(TEXT("stream stopped"), Shell->GetChatStatusForSmokeTest(), FString(TEXT("已停止")));
+
+	Shell->SetAssistantBackendByNameForSmokeTest(TEXT("unavailable"));
+	TestFalse(TEXT("unavailable backend rejects send"),
+		Shell->SendChatMessageForSmokeTest(TEXT("不会发送")));
+	TestEqual(TEXT("unavailable status"),
+		Shell->GetChatStatusForSmokeTest(), FString(TEXT("后端不可用")));
+
+	Shell.Reset();
+	IFileManager::Get().DeleteDirectory(*HistoryRoot, false, true);
 	return true;
 }
 

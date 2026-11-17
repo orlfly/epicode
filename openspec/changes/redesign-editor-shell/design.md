@@ -378,12 +378,12 @@ SidecarIdleSeconds=300
 
 ## 聚焦工作台实施结果
 
-2026-11-16 已完成 2.1–2.9（含 2.3 场景文件导入和 2.4 角色/物品本地库）、3.1–3.7 以及 4.1–4.11（本地库索引、扫描、面板、场景导入、资产导入、引用删除、拖放放置、路径安全、冲突处理和测试覆盖）；CLI smoke 和正式 automation 测试均已覆盖。实现仍坚持“界面级隐藏、复用命令注册表、保留 `--legacy`”的约束。
+2026-11-16 已完成 2.1–2.9（含 2.3 场景文件导入和 2.4 角色/物品本地库）、3.1–3.7 以及 4.1–4.11（本地库索引、扫描、面板、场景导入、资产导入、引用删除、拖放放置、路径安全、冲突处理和测试覆盖）；2026-11-17 继续完成 5.1–5.2、5.8–5.13 的对话接口、模块、Mock 后端、配置、密钥、上下文、历史和降级。DeepSeek sidecar/HTTP 真实传输（5.3–5.7）仍等待 SDK 安装来源。CLI smoke 和正式 automation 测试均已覆盖。实现仍坚持“界面级隐藏、复用命令注册表、保留 `--legacy`”的约束。
 
 ### 布局与面板
 
 - 根控件使用垂直 `SVerticalBox`：顶部菜单栏、中间 `SSplitter` 三栏、底部状态栏。
-- 左栏包含对象列表、搜索框、类型过滤按钮、资源库列表、本地库场景列表和新场景名输入；右栏上半部分是四类实体检查器，下半部分是对话占位、输入框和禁用的发送按钮。
+- 左栏包含对象列表、搜索框、类型过滤按钮、资源库列表、本地库场景列表和新场景名输入；右栏上半部分是四类实体检查器，下半部分是对话历史、输入框、发送/停止按钮、后端状态和设置入口。
 - 左右栏折叠通过 `SSplitter::Slot` 的动态 `Value`/`MinSize` 加 `SBox::Visibility` 实现；中间视口使用 `Value = 1 - left - right` 自动扩展。
 - 面板宽度、折叠状态、最近场景 ID 和视口镜头写入 `Saved/Epicode/Editor/layout.json`。使用 `FJsonSerializer` 读写，槽位 `OnSlotResized` 标脏，`Tick` 节流 0.5 秒保存，析构时再保存一次。
 - 视口镜头通过 `FLevelEditorViewportClient::GetViewLocation/GetViewRotation` 读取，启动时 `SetViewLocation/SetViewRotation` 恢复；相机速度使用 UE 5.8 的 `FEditorViewportCameraSpeedSettings` 新 API，避免已废弃的整数设置接口。
@@ -455,9 +455,21 @@ SidecarIdleSeconds=300
 - 目标包路径按 `<destination>/<destination basename>` 计算；包已存在时 Shell 弹出“是=覆盖 / 否=另存副本 / 取消=不导入”。覆盖设置 `replaceExisting=true`；副本让服务追加 UTC 时间戳后缀；取消不提交任务、不留下索引。
 - `Epicode.Import.Reuse` 验证同内容同选项复用；`Epicode.EditorShell.AssetImportAsync` 的隔离目标分支验证取消、覆盖和副本三种选择。
 
+### 对话接口与本地工作台（5.1–5.13）
+
+- 新增 `EpicodeAssistant` Runtime 模块，公开 `IConversationBackend`、`IConversationStream`、`FConversationRequest`、`FConversationEvent`、`FConversationMessage`；UI 只轮询 `IConversationStream::Poll`，不直接依赖 SDK、HTTP 或 Python。
+- `FMockConversationBackend` 支持脚本化 delta、done、error、cancel、超时和崩溃；`FUnavailableConversationBackend` 在未配置时返回可读原因。Shell 默认读取 `AssistantBackend=deepseek_sidecar`，在真实 sidecar 接入前显示不可用；设置 `AssistantBackend=mock` 可做离线演示。
+- 右侧对话面板支持发送、Ctrl+Enter、停止、重发上一条、清空、新建会话、删除当前会话和设置；流式 delta 追加到当前助手消息，完成后落盘，错误/取消/超时显示在状态行和对话区。发送按钮在流式期间禁用，停止按钮仅在流式期间启用。
+- 配置位于 `UEpicodeSettings` 的 `Assistant` 分类：启用、后端、模型、端点、sidecar 命令/脚本/模式、Key 文件、上下文 token/字符上限、修复尝试、请求超时和 sidecar 空闲时间；默认值写入 `DefaultEpicode.ini`。
+- 密钥优先读 `DEEPSEEK_API_KEY`，其次读 `Saved/Epicode/deepseek.env`；`EnsureTemplateFile` 以 0600 创建模板。UI 只显示掩码（前四/后四），错误信息不回显密钥。
+- `FConversationContextBuilder` 先放场景名/ID、对象数、选择、本地库摘要和命令 schema，再从最近消息向前填充；超出 `AssistantMaxContextChars` 时截断历史，保留核心事实。
+- `FConversationHistoryStore` 把用户/助手消息写入 `Saved/Epicode/Chat/<conversationId>.json`，schema 版本 1，临时文件原子替换；系统提示不落盘。启动时恢复最近会话，新建/清空会切换或重写当前文件。
+- 请求超时由 Shell 计时并在超过 `AssistantRequestTimeoutSeconds` 时取消流；后端错误、不可用、禁用和 Mock 崩溃均只影响对话面板，命令、视口、库和保存路径不经过对话状态。
+
 ### 测试覆盖（4.11）
 
 - `Epicode.Library.Index` 覆盖索引重建/schema/缺失资产；`Epicode.Import.*` 覆盖分类、选项、角色、取消、路径安全和 SHA-1 复用；`Epicode.EditorShell.AssetDelete` 覆盖显式落点放置、当前/已保存场景引用阻断和文件删除；`Epicode.EditorShell.AssetImportAsync` 覆盖进度、取消、失败清理和冲突选项。
+- `Epicode.Assistant.History` 覆盖落盘/加载/系统消息过滤/损坏 JSON/删除；`Epicode.Assistant.ContextBudget` 覆盖 200 条历史下的字符预算和核心事实保留；`Epicode.Assistant.Secrets` 覆盖环境变量读取和掩码；`Epicode.Assistant.MockBackend` 覆盖 delta/done/error/cancel/timeout/crash；`Epicode.Assistant.Chat` 覆盖 Shell 流式回复、历史文件、恢复、失败、停止和不可用降级。
 
 ### 快捷键与拦截
 
@@ -473,7 +485,7 @@ SidecarIdleSeconds=300
 
 ### 验证证据
 
-- 构建：`engine/Scripts/Build.sh`，`Result: Succeeded`；插件二进制 sha256 `6026f7e3e22b335a1b33e41e754db758dd5c4d240f4a31c72ae797dba1846491`，大小 1203464 bytes。
+- 构建：`engine/Scripts/Build.sh`，`Result: Succeeded`；Shell 插件二进制 sha256 `5265d1e560751d6110e9da9605fd40c59ca21eb7dc014598a6cd23446f7daa69`，大小 1265088 bytes；Assistant 插件二进制 sha256 `74c3ef59b229fde7aad04a476b0a0d5d8b8676cff1982863b79ee34e11a4145e`，大小 193328 bytes。
 - 工作台截图（4.4 面板验收）：`Saved/Screenshots/EditorShellWorkbench.png`（1600x900，sha256 `9f364ac2...fd4b22a`）、折叠布局 `EditorShellCollapsed.png`、菜单 `EditorShellMenu.png`、菜单 popup `EditorShellMenuPopup.png`（137x194）。
 - 菜单实际打开：日志 `FocusedEditor menu smoke: label=场景 open=true`；Slate 主窗口截图不含 popup，使用 `WriteActiveWindowScreenshot` 抓取 137x194 菜单窗口。
 - 场景文件导入：`-EpicodeFocusedEditorSceneImportSmoke=/tmp/epicode-import-test/scene.json` 日志 `FocusedEditor scene import smoke: success=true`，截图 `EditorShellSceneImport.png`（1600x900，`fb3fd5de...b4acd77e`）；场景库出现 `Imported Scene Test`。
@@ -481,8 +493,9 @@ SidecarIdleSeconds=300
 - 资产持久化：首次导入后 `Content/Epicode/Imported` 生成 16 个 `.uasset`（约 932K）；重启后 workbench smoke 资源库仍显示 `cube`（物品）和 `skeletal`（角色）共 2 项，截图即上面的工作台截图。
 - 检查器 smoke：`-EpicodeFocusedEditorInspectorSmoke` 覆盖物品属性（位置、可见性、物理）、灯光强度/衰减、摄像 FOV/活动相机、角色速度/暂停；日志 `prop ... snap=true grid=10.0 ...`、`camera ... active=true`、`character ... speed=true paused=true`、`undo ... restored=true`。截图 `EditorShellInspectorProp.png`（`e834edb5...e9650c7`）、`EditorShellInspectorLight.png`（`b1ece030...475eb2e7`）、`EditorShellInspectorCamera.png`（`1b9d9647...a3e6f918`）、`EditorShellInspectorCharacter.png`（`ee2cc137...504d9203`）。
 - 快捷键：W/E/R/Q/F 均 `handled=true`；Delete 后实体数 4 -> 3，Ctrl+Z 后 3 -> 4；Ctrl+S `handled=true`；无 `EnsureFailed`。
-- 自动化测试：`Scripts/Test.sh` 运行 `Epicode.*` 全部 172 项，`0` 失败；新增 `Epicode.EditorShell.Viewport` 验证真实 `SLevelViewport`、对象选择、W/E/R gizmo 模式、数值变换、Delete 后实体数 4 -> 3 和 Ctrl+Z 恢复 4；`Epicode.EditorShell.Scope` 验证 10 个聚焦菜单且环境/地形/植被/蓝图/动画蓝图/Sequencer/PIE/渲染队列/导航/物理约束/分组/材质图入口均不存在；`Epicode.EditorShell.Inspector` 验证四类实体属性、可见性、位置吸附、活动相机、角色速度/暂停和物品物理；`Epicode.EditorShell.LibraryPanel` 验证场景/资产搜索、标签过滤、类型过滤、空结果和手动刷新；`Epicode.EditorShell.SceneImport` 验证不支持 schema 拒绝、首次导入、副本新 ID、库内选中和场景库写入；`Epicode.EditorShell.AssetImportAsync` 验证 `import.submit` 任务提交、`queued` 初始阶段、成功保存资产包并清理实体、取消不新增资产、失败清理实体且资源库计数不变，以及目标冲突取消/覆盖/副本；`Epicode.EditorShell.AssetDelete` 验证显式落点、当前场景引用阻断、已保存场景引用阻断、引用解除后删除文件和索引；`Epicode.Import.PathSafety` 验证根目录外文件、目录穿越、符号链接逃逸、空文件和非支持扩展名；`Epicode.Import.Reuse` 验证 SHA-1 内容和选项复用；`Epicode.Library.Index` 验证重建、JSON schema、Upsert/Load、缺失资产标记、损坏备份和恢复。
-- 本地库索引：`Saved/Epicode/Library/index.json` 当前 5 个场景条目、0 个资产条目，2047 bytes，sha256 `92e8c973731669f73cfc6f01ca26097082de6954846c3675cc6461da466671f7`；场景列表的搜索、分类、刷新、定位和索引详情显示在工作台截图中。
+- 自动化测试：`Scripts/Test.sh` 运行 `Epicode.*` 全部 177 项，`0` 失败，`TEST COMPLETE. EXIT CODE: 0`；新增 `Epicode.EditorShell.Viewport` 验证真实 `SLevelViewport`、对象选择、W/E/R gizmo 模式、数值变换、Delete 后实体数 4 -> 3 和 Ctrl+Z 恢复 4；`Epicode.EditorShell.Scope` 验证 10 个聚焦菜单且环境/地形/植被/蓝图/动画蓝图/Sequencer/PIE/渲染队列/导航/物理约束/分组/材质图入口均不存在；`Epicode.EditorShell.Inspector` 验证四类实体属性、可见性、位置吸附、活动相机、角色速度/暂停和物品物理；`Epicode.EditorShell.LibraryPanel` 验证场景/资产搜索、标签过滤、类型过滤、空结果和手动刷新；`Epicode.EditorShell.SceneImport` 验证不支持 schema 拒绝、首次导入、副本新 ID、库内选中和场景库写入；`Epicode.EditorShell.AssetImportAsync` 验证 `import.submit` 任务提交、`queued` 初始阶段、成功保存资产包并清理实体、取消不新增资产、失败清理实体且资源库计数不变，以及目标冲突取消/覆盖/副本；`Epicode.EditorShell.AssetDelete` 验证显式落点、当前场景引用阻断、已保存场景引用阻断、引用解除后删除文件和索引；`Epicode.Import.PathSafety` 验证根目录外文件、目录穿越、符号链接逃逸、空文件和非支持扩展名；`Epicode.Import.Reuse` 验证 SHA-1 内容和选项复用；`Epicode.Library.Index` 验证重建、JSON schema、Upsert/Load、缺失资产标记、损坏备份和恢复；`Epicode.Assistant.*` 验证历史、上下文预算、密钥掩码、Mock 流式和 Shell 对话降级。
+- 助手测试专项：`engine/Saved/Logs/assistant-test.log` 中 `Epicode.Assistant.Chat`、`ContextBudget`、`History`、`MockBackend`、`Secrets` 全部 `Result={Success}`，退出码 0。
+- 本地库索引：`Saved/Epicode/Library/index.json` 当前 5 个场景条目、0 个资产条目，2047 bytes，sha256 `e9565c4cdc0fe36967955f784f79ca99e54154ea81a73eea758d08d1c09fc5e9`；场景列表的搜索、分类、刷新、定位和索引详情显示在工作台截图中。
 - 布局恢复：把 `layout.json` 改为左右折叠、宽度 0.30/0.15 后重启，日志 `layout loaded: left=false right=false leftWidth=0.300 rightWidth=0.150 recent=2 camera=true`；截图 `EditorShellLayoutLoad.png`（`d70d99c7...c25b53f7`）。
 - 视口重试：`-EpicodeFocusedEditorViewportRetrySmoke` 先注入创建失败，1 秒后重试；日志 `viewport retry smoke: ready=true`，截图 `EditorShellViewportRetry.png`（`4d17a5d2...3995e9c1`）。
 - 证据全文：`engine/Saved/Logs/editor-shell-workbench.log`。
@@ -493,7 +506,7 @@ SidecarIdleSeconds=300
 - 资产导入已使用 `import.submit` 任务和进度卡，但 Interchange 本体仍在服务 Tick 的游戏线程同步执行：进度阶段较粗，取消只对尚未开始的排队任务立即生效，大文件仍可能短暂阻塞界面；真正后台线程导入需要另立任务。
 - 场景文件导入已完成 schema 校验、覆盖/副本/取消和库内选中；导入大文件仍会阻塞界面。
 - 资源库暂无缩略图；标签目前只支持过滤，尚无编辑/批量管理入口。
-- 对话面板无后端，发送按钮禁用；任务 5.x 接入。
+- 对话面板已接入接口、Mock 后端、上下文、历史和降级；DeepSeek sidecar/HTTP 真实传输（5.3–5.7）尚未实现，默认后端会显示不可用，设置 `AssistantBackend=mock` 仅用于离线演示。`Epicode.Assistant.SidecarProtocol` 因此尚未编写。
 - 视口重试已实现并做故障注入测试；真实驱动失败仍只能由用户手动点击重试。
 
 ## Data Model

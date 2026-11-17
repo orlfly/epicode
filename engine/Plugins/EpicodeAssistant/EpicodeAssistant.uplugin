@@ -1,0 +1,26 @@
+{
+  "FileVersion": 3,
+  "Version": 1,
+  "VersionName": "0.1.0",
+  "FriendlyName": "Epicode Assistant",
+  "Description": "Conversation backend, streaming, context budgeting, and local history for the Epicode editor.",
+  "Category": "Epicode",
+  "CreatedBy": "Epicode",
+  "CanContainContent": false,
+  "IsBetaVersion": true,
+  "Installed": false,
+  "EnabledByDefault": true,
+  "Modules": [
+    {
+      "Name": "EpicodeAssistant",
+      "Type": "Runtime",
+      "LoadingPhase": "Default"
+    }
+  ],
+  "Plugins": [
+    {
+      "Name": "EpicodeCore",
+      "Enabled": true
+    }
+  ]
+}

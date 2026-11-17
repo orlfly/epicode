@@ -21,6 +21,10 @@
     {
       "Name": "EpicodeCore",
       "Enabled": true
+    },
+    {
+      "Name": "EpicodeAssistant",
+      "Enabled": true
     }
   ]
 }

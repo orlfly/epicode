@@ -17,6 +17,7 @@ public class EpicodeEditorShell : ModuleRules
 			"Slate",
 			"SlateCore",
 			"EpicodeCore",
+			"EpicodeAssistant",
 			"UnrealEd",
 			"LevelEditor",
 			"EditorFramework",

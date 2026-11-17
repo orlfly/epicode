@@ -7,6 +7,10 @@
 #include "Engine/StaticMeshActor.h"
 #include "EngineUtils.h"
 #include "DesktopPlatformModule.h"
+#include "EpicodeAssistantContext.h"
+#include "EpicodeAssistantHistory.h"
+#include "EpicodeAssistantSecrets.h"
+#include "EpicodeAssistantTypes.h"
 #include "EpicodeEntityActors.h"
 #include "EpicodeSceneLibrary.h"
 #include "EpicodeSceneSubsystem.h"
@@ -211,13 +215,19 @@ void SEpicodeFocusedShell::Construct(const FArguments& InArgs)
 		bInspectorSnap ? 1 : 0);
 	RefreshInspector();
 	RefreshStatus();
-	AddChatLine(TEXT("系统"), TEXT("对话后端尚未配置；场景命令、对象列表和视口可用。"));
+	InitializeChat();
 }
 
 void SEpicodeFocusedShell::Tick(
 	const FGeometry& AllottedGeometry, const double InCurrentTime, const float InDeltaTime)
 {
 	SCompoundWidget::Tick(AllottedGeometry, InCurrentTime, InDeltaTime);
+
+	if (InCurrentTime - LastChatPollTime >= 0.1)
+	{
+		LastChatPollTime = InCurrentTime;
+		PollChatStream(InDeltaTime);
+	}
 
 	if (InCurrentTime - LastRefreshTime < 0.25)
 	{
@@ -1291,6 +1301,15 @@ void SEpicodeFocusedShell::BuildChatMenu(FMenuBuilder& MenuBuilder)
 	MenuBuilder.AddMenuEntry(
 		MenuText(TEXT("清空对话")), FText::GetEmpty(), FSlateIcon(),
 		FUIAction(FExecuteAction::CreateSP(this, &SEpicodeFocusedShell::ClearChat)));
+	MenuBuilder.AddMenuEntry(
+		MenuText(TEXT("删除当前会话")), FText::GetEmpty(), FSlateIcon(),
+		FUIAction(FExecuteAction::CreateSP(this, &SEpicodeFocusedShell::DeleteChat)));
+	MenuBuilder.AddMenuEntry(
+		MenuText(TEXT("重发上一条")), FText::GetEmpty(), FSlateIcon(),
+		FUIAction(FExecuteAction::CreateSP(this, &SEpicodeFocusedShell::RetryChat)));
+	MenuBuilder.AddMenuEntry(
+		MenuText(TEXT("停止生成")), FText::GetEmpty(), FSlateIcon(),
+		FUIAction(FExecuteAction::CreateSP(this, &SEpicodeFocusedShell::StopChat)));
 	MenuBuilder.AddMenuSeparator();
 	MenuBuilder.AddMenuEntry(
 		MenuText(TEXT("显示对话面板")), FText::GetEmpty(), FSlateIcon(),
@@ -1300,8 +1319,8 @@ void SEpicodeFocusedShell::BuildChatMenu(FMenuBuilder& MenuBuilder)
 			FIsActionChecked::CreateSP(this, &SEpicodeFocusedShell::IsRightPanelVisible)),
 		NAME_None, EUserInterfaceActionType::ToggleButton);
 	MenuBuilder.AddMenuEntry(
-		MenuText(TEXT("对话设置")), MenuText(TEXT("模型与 API Key 设置将在任务 5.9 接入")), FSlateIcon(),
-		FUIAction());
+		MenuText(TEXT("对话设置")), MenuText(TEXT("查看后端、模型和 API Key 配置状态")), FSlateIcon(),
+		FUIAction(FExecuteAction::CreateSP(this, &SEpicodeFocusedShell::ShowChatSettings)));
 }
 
 void SEpicodeFocusedShell::BuildHelpMenu(FMenuBuilder& MenuBuilder)
@@ -2351,8 +2370,28 @@ TSharedRef<SWidget> SEpicodeFocusedShell::BuildChatPanel()
 						.HeightOverride(64.0f)
 						[
 							SAssignNew(ChatInput, SMultiLineEditableTextBox)
-								.HintText(LOCTEXT("ChatHint", "对话后端未配置"))
+								.HintText(LOCTEXT(
+									"ChatHint",
+									"输入消息，Ctrl+Enter 发送；Shift+Enter 换行"))
 								.AutoWrapText(true)
+								.OnKeyDownHandler_Lambda(
+									[this](const FGeometry&, const FKeyEvent& KeyEvent)
+									{
+										if (KeyEvent.GetKey() == EKeys::Enter
+											&& KeyEvent.IsControlDown())
+										{
+											const FString Text = ChatInput.IsValid()
+												? ChatInput->GetText().ToString()
+												: FString();
+											if (ChatInput.IsValid())
+											{
+												ChatInput->SetText(FText::GetEmpty());
+											}
+											SendChatMessage(Text);
+											return FReply::Handled();
+										}
+										return FReply::Unhandled();
+									})
 						]
 				]
 			+ SVerticalBox::Slot()
@@ -2369,13 +2408,54 @@ TSharedRef<SWidget> SEpicodeFocusedShell::BuildChatPanel()
 						]
 					+ SHorizontalBox::Slot()
 						.AutoWidth()
+						.Padding(FMargin(3.0f, 0.0f, 0.0f, 0.0f))
 						[
-							SNew(SButton)
-								.IsEnabled(false)
-								.ToolTipText(LOCTEXT("ChatDisabled", "对话后端将在任务 5 接入"))
+							SAssignNew(ChatStopButton, SButton)
+								.ButtonStyle(FAppStyle::Get(), "Menu.Button")
+								.ContentPadding(FMargin(6.0f, 2.0f))
+								.IsEnabled_Lambda([this]()
+								{
+									return ChatStream.IsValid();
+								})
+								.ToolTipText(LOCTEXT("StopChat", "停止流式生成"))
+								.OnClicked_Lambda([this]()
+								{
+									StopChat();
+									return FReply::Handled();
+								})
 								[
 									SNew(STextBlock)
-										.Text(LOCTEXT("Send", "发送（待接入）"))
+										.Text(LOCTEXT("Stop", "停止"))
+										.Font(FAppStyle::Get().GetFontStyle("SmallFont"))
+								]
+						]
+					+ SHorizontalBox::Slot()
+						.AutoWidth()
+						.Padding(FMargin(3.0f, 0.0f, 0.0f, 0.0f))
+						[
+							SAssignNew(ChatSendButton, SButton)
+								.ButtonStyle(FAppStyle::Get(), "Menu.Button")
+								.ContentPadding(FMargin(6.0f, 2.0f))
+								.IsEnabled_Lambda([this]()
+								{
+									return !ChatStream.IsValid();
+								})
+								.ToolTipText(LOCTEXT("SendChat", "发送消息（Ctrl+Enter）"))
+								.OnClicked_Lambda([this]()
+								{
+									const FString Text = ChatInput.IsValid()
+										? ChatInput->GetText().ToString()
+										: FString();
+									if (ChatInput.IsValid())
+									{
+										ChatInput->SetText(FText::GetEmpty());
+									}
+									SendChatMessage(Text);
+									return FReply::Handled();
+								})
+								[
+									SNew(STextBlock)
+										.Text(LOCTEXT("Send", "发送"))
 										.Font(FAppStyle::Get().GetFontStyle("SmallFont"))
 								]
 						]
@@ -4086,46 +4166,600 @@ void SEpicodeFocusedShell::SelectEntity(const FGuid& InId, bool bFocus)
 
 void SEpicodeFocusedShell::AddChatLine(const FString& Speaker, const FString& Text)
 {
+	FConversationMessage Message;
+	Message.Id = FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphens);
+	Message.Content = Text;
+	if (Speaker == TEXT("系统") || Speaker == TEXT("错误") || Speaker == TEXT("帮助")
+		|| Speaker == TEXT("诊断") || Speaker == TEXT("关于"))
+	{
+		Message.Role = EConversationRole::System;
+	}
+	else if (Speaker == TEXT("助手"))
+	{
+		Message.Role = EConversationRole::Assistant;
+	}
+	else
+	{
+		Message.Role = EConversationRole::User;
+	}
+	ChatMessages.Add(MoveTemp(Message));
+	ChatRenderedSignature.Reset();
+	RefreshChatHistory();
+}
+
+void SEpicodeFocusedShell::InitializeChat()
+{
+	if (bChatInitialized)
+	{
+		return;
+	}
+	bChatInitialized = true;
+
+	const UEpicodeSettings* Settings = UEpicodeSettings::Get();
+	ChatBackend = CreateConversationBackend(
+		Settings != nullptr ? Settings->AssistantBackend : TEXT("deepseek_sidecar"));
+
+	FString AvailabilityError;
+	if (!ChatBackend.IsValid())
+	{
+		ChatBackendStatus = TEXT("后端未创建");
+	}
+	else if (ChatBackend->IsAvailable(AvailabilityError))
+	{
+		ChatBackendStatus = FString::Printf(TEXT("%s 就绪"), *ChatBackend->GetName());
+	}
+	else
+	{
+		ChatBackendStatus = FString::Printf(
+			TEXT("%s 不可用：%s"),
+			*ChatBackend->GetName(),
+			*AvailabilityError);
+	}
+
+	ChatConversationId = FConversationHistoryStore::NewConversationId();
+	FString ListError;
+	const TArray<FString> Existing = FConversationHistoryStore::ListIds(ListError);
+	if (!ListError.IsEmpty())
+	{
+		ChatLastError = ListError;
+	}
+	if (Existing.Num() > 0
+		&& LoadChatConversation(Existing[0])
+		&& ChatMessages.Num() > 0)
+	{
+		ChatStatus = TEXT("已恢复最近对话");
+	}
+	else
+	{
+		AddChatLine(TEXT("系统"), FString::Printf(
+			TEXT("新对话。%s；场景命令、对象列表和视口可用。"),
+			*ChatBackendStatus));
+		ChatStatus = ChatBackendStatus;
+	}
+	RefreshChatHistory();
+}
+
+TSharedPtr<IConversationBackend> SEpicodeFocusedShell::CreateConversationBackend(
+	const FString& BackendName) const
+{
+	const UEpicodeSettings* Settings = UEpicodeSettings::Get();
+	if (Settings != nullptr && !Settings->bAssistantEnabled)
+	{
+		return MakeShared<FUnavailableConversationBackend>(
+			TEXT("对话已在 Epicode 设置中关闭"));
+	}
+
+	const FString Lower = BackendName.ToLower();
+	if (Lower == TEXT("mock"))
+	{
+		return MakeShared<FMockConversationBackend>();
+	}
+	if (Lower == TEXT("unavailable") || Lower == TEXT("none"))
+	{
+		return MakeShared<FUnavailableConversationBackend>(
+			TEXT("设置选择了 unavailable 后端"));
+	}
+	if (Lower.Contains(TEXT("sidecar")) || Lower.Contains(TEXT("deepseek")))
+	{
+		return MakeShared<FUnavailableConversationBackend>(
+			TEXT("DeepSeek sidecar/HTTP 传输尚未接入（任务 5.3–5.5）；可设置 AssistantBackend=mock 进行离线演示"));
+	}
+	return MakeShared<FUnavailableConversationBackend>(
+		FString::Printf(TEXT("未知对话后端：%s"), *BackendName));
+}
+
+FString SEpicodeFocusedShell::BuildChatContext() const
+{
+	FConversationContextInput Input;
+	Input.SceneName = Model.HasScene() ? Model.GetSceneName() : FString();
+	Input.SceneId = Model.HasScene() ? Model.GetSceneId() : FString();
+	Input.EntityCount = Model.GetEntityCount();
+	Input.SelectionName = Model.GetSelectedEntityLabel();
+	if (const FEpicodeFocusedEntityRow* Selected = Model.FindEntity(Model.GetSelectedEntityId()))
+	{
+		Input.SelectionType = Selected->TypeLabel;
+	}
+
+	const TArray<FEpicodeFocusedAssetRow>& Assets = Model.GetAssets();
+	Input.LibrarySummary = FString::Printf(TEXT("%d 个资产"), Assets.Num());
+	if (Assets.Num() > 0)
+	{
+		TArray<FString> Names;
+		for (int32 Index = 0; Index < FMath::Min(Assets.Num(), 8); ++Index)
+		{
+			Names.Add(FString::Printf(TEXT("%s(%s)"), *Assets[Index].Name, *Assets[Index].Type));
+		}
+		Input.LibrarySummary += TEXT("：") + FString::Join(Names, TEXT("、"));
+		if (Assets.Num() > 8)
+		{
+			Input.LibrarySummary += TEXT(" 等");
+		}
+	}
+
+	Input.CommandSummary = TEXT(
+		"scene.new/open/save/saveAs/list、entity.create/duplicate/delete/rename/"
+		"setTransform/setVisible/list/get、scene.snapshot");
+	Input.History = ChatMessages;
+
+	const UEpicodeSettings* Settings = UEpicodeSettings::Get();
+	const int32 MaxChars = Settings != nullptr ? Settings->AssistantMaxContextChars : 12000;
+	return FConversationContextBuilder::Build(Input, MaxChars);
+}
+
+bool SEpicodeFocusedShell::SendChatMessage(const FString& Message)
+{
+	const FString Prompt = Message.TrimStartAndEnd();
+	if (Prompt.IsEmpty())
+	{
+		return false;
+	}
+	if (!bChatInitialized)
+	{
+		InitializeChat();
+	}
+	if (ChatStream.IsValid())
+	{
+		AddChatLine(TEXT("系统"), TEXT("当前回复仍在生成，请先停止或等待完成。"));
+		return false;
+	}
+
+	FString UnavailableReason;
+	if (!ChatBackend.IsValid() || !ChatBackend->IsAvailable(UnavailableReason))
+	{
+		ChatLastError = UnavailableReason.IsEmpty()
+			? TEXT("对话后端不可用")
+			: UnavailableReason;
+		ChatStatus = TEXT("后端不可用");
+		AddChatLine(TEXT("错误"), ChatLastError);
+		RefreshChatHistory();
+		return false;
+	}
+
+	const FString Context = BuildChatContext();
+	TArray<FConversationMessage> PreviousHistory;
+	for (const FConversationMessage& Item : ChatMessages)
+	{
+		if (Item.Role != EConversationRole::System && !Item.Content.IsEmpty())
+		{
+			PreviousHistory.Add(Item);
+		}
+	}
+
+	FConversationMessage UserMessage;
+	UserMessage.Id = FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphens);
+	UserMessage.Role = EConversationRole::User;
+	UserMessage.Content = Prompt;
+	ChatMessages.Add(UserMessage);
+	ChatLastUserMessage = Prompt;
+	ChatLastError.Reset();
+	SaveChatHistory();
+
+	FConversationRequest Request;
+	Request.RequestId = FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphens);
+	Request.ConversationId = ChatConversationId;
+	Request.Prompt = Prompt;
+	Request.Context = Context;
+	Request.History = MoveTemp(PreviousHistory);
+
+	FString StartError;
+	ChatStream = ChatBackend->Start(Request, StartError);
+	if (!ChatStream.IsValid())
+	{
+		ChatLastError = StartError.IsEmpty() ? TEXT("无法启动对话流") : StartError;
+		ChatStatus = TEXT("发送失败");
+		AddChatLine(TEXT("错误"), ChatLastError);
+		SaveChatHistory();
+		RefreshChatHistory();
+		return false;
+	}
+
+	bChatStreamFinished = false;
+	ChatStreamStartedAt = FPlatformTime::Seconds();
+	ChatStatus = TEXT("正在生成…");
+	RefreshChatHistory();
+	return true;
+}
+
+void SEpicodeFocusedShell::PollChatStream(float DeltaSeconds)
+{
+	if (!ChatStream.IsValid())
+	{
+		return;
+	}
+	(void)DeltaSeconds;
+
+	const UEpicodeSettings* Settings = UEpicodeSettings::Get();
+	const double TimeoutSeconds = Settings != nullptr
+		? static_cast<double>(Settings->AssistantRequestTimeoutSeconds)
+		: 60.0;
+	if (TimeoutSeconds > 0.0
+		&& FPlatformTime::Seconds() - ChatStreamStartedAt > TimeoutSeconds)
+	{
+		ChatStream->Cancel();
+		ChatStream.Reset();
+		ChatLastError = FString::Printf(
+			TEXT("对话请求超过 %.0f 秒未完成"), TimeoutSeconds);
+		ChatStatus = TEXT("请求超时");
+		AddChatLine(TEXT("错误"), ChatLastError);
+		SaveChatHistory();
+		return;
+	}
+
+	TArray<FConversationEvent> Events;
+	ChatStream->Poll(Events);
+	bool bChanged = false;
+	for (const FConversationEvent& Event : Events)
+	{
+		if (Event.Type == EConversationEventType::Delta)
+		{
+			if (Event.Text.IsEmpty())
+			{
+				continue;
+			}
+			if (ChatMessages.Num() == 0
+				|| ChatMessages.Last().Role != EConversationRole::Assistant
+				|| bChatStreamFinished)
+			{
+				FConversationMessage Assistant;
+				Assistant.Id = FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphens);
+				Assistant.Role = EConversationRole::Assistant;
+				ChatMessages.Add(MoveTemp(Assistant));
+			}
+			ChatMessages.Last().Content += Event.Text;
+			ChatStatus = TEXT("正在生成…");
+			bChanged = true;
+		}
+		else if (Event.Type == EConversationEventType::Done)
+		{
+			bChatStreamFinished = true;
+			ChatStatus = TEXT("生成完成");
+			ChatStream.Reset();
+			SaveChatHistory();
+			bChanged = true;
+		}
+		else if (Event.Type == EConversationEventType::Error)
+		{
+			ChatLastError = Event.ErrorMessage.IsEmpty()
+				? FString::Printf(TEXT("对话流错误：%s"), *Event.ErrorCode)
+				: Event.ErrorMessage;
+			ChatStatus = TEXT("生成失败");
+			ChatStream.Reset();
+			AddChatLine(TEXT("错误"), ChatLastError);
+			SaveChatHistory();
+			bChanged = true;
+		}
+		else if (Event.Type == EConversationEventType::Cancelled)
+		{
+			ChatStatus = TEXT("已停止");
+			ChatStream.Reset();
+			AddChatLine(TEXT("系统"), TEXT("已停止生成。"));
+			SaveChatHistory();
+			bChanged = true;
+		}
+	}
+
+	if (bChanged)
+	{
+		RefreshChatHistory();
+	}
+}
+
+void SEpicodeFocusedShell::StopChat()
+{
+	if (!ChatStream.IsValid())
+	{
+		return;
+	}
+	ChatStream->Cancel();
+	ChatStatus = TEXT("正在停止…");
+	PollChatStream(0.0f);
+	RefreshChatHistory();
+}
+
+void SEpicodeFocusedShell::RetryChat()
+{
+	if (ChatLastUserMessage.IsEmpty())
+	{
+		AddChatLine(TEXT("系统"), TEXT("没有可重发的消息。"));
+		return;
+	}
+	SendChatMessage(ChatLastUserMessage);
+}
+
+void SEpicodeFocusedShell::SaveChatHistory()
+{
+	FString SaveError;
+	if (!FConversationHistoryStore::Save(ChatConversationId, ChatMessages, SaveError))
+	{
+		ChatLastError = SaveError;
+	}
+}
+
+bool SEpicodeFocusedShell::LoadChatConversation(const FString& ConversationId)
+{
+	if (ConversationId.IsEmpty())
+	{
+		return false;
+	}
+	if (ChatStream.IsValid())
+	{
+		ChatStream->Cancel();
+		ChatStream.Reset();
+	}
+
+	TArray<FConversationMessage> Loaded;
+	FString LoadError;
+	if (!FConversationHistoryStore::Load(ConversationId, Loaded, LoadError))
+	{
+		ChatLastError = LoadError;
+		return false;
+	}
+
+	ChatConversationId = ConversationId;
+	ChatMessages = MoveTemp(Loaded);
+	ChatLastError.Reset();
+	ChatLastUserMessage.Reset();
+	for (int32 Index = ChatMessages.Num() - 1; Index >= 0; --Index)
+	{
+		if (ChatMessages[Index].Role == EConversationRole::User)
+		{
+			ChatLastUserMessage = ChatMessages[Index].Content;
+			break;
+		}
+	}
+	ChatRenderedSignature.Reset();
+	RefreshChatHistory();
+	return true;
+}
+
+void SEpicodeFocusedShell::RefreshChatHistory()
+{
 	if (!ChatHistoryBox.IsValid())
 	{
 		return;
 	}
 
-	ChatHistoryBox->AddSlot()
-		.AutoHeight()
-		.Padding(FMargin(4.0f, 3.0f))
-		[
-			SNew(STextBlock)
-				.Text(FText::FromString(FString::Printf(TEXT("%s：%s"), *Speaker, *Text)))
-				.Font(FAppStyle::Get().GetFontStyle("SmallFont"))
-				.ColorAndOpacity(Speaker == TEXT("系统")
-					? MutedTextColor()
-					: PanelTextColor())
-				.AutoWrapText(true)
-		];
+	FString Signature;
+	for (const FConversationMessage& Message : ChatMessages)
+	{
+		Signature += FConversationMessage::RoleToString(Message.Role)
+			+ TEXT(":") + Message.Content + TEXT("\n");
+	}
+	Signature += ChatBackendStatus + TEXT("|") + ChatStatus + TEXT("|") + ChatLastError;
+	if (Signature == ChatRenderedSignature)
+	{
+		return;
+	}
+	ChatRenderedSignature = Signature;
+
+	ChatHistoryBox->ClearChildren();
+	for (const FConversationMessage& Message : ChatMessages)
+	{
+		FString Speaker = TEXT("你");
+		FSlateColor Color = PanelTextColor();
+		if (Message.Role == EConversationRole::Assistant)
+		{
+			Speaker = TEXT("助手");
+			Color = AccentTextColor();
+		}
+		else if (Message.Role == EConversationRole::System)
+		{
+			Speaker = TEXT("系统");
+			Color = MutedTextColor();
+		}
+
+		ChatHistoryBox->AddSlot()
+			.AutoHeight()
+			.Padding(FMargin(4.0f, 3.0f))
+			[
+				SNew(STextBlock)
+					.Text(FText::FromString(FString::Printf(
+						TEXT("%s：%s"),
+						*Speaker,
+						*(Message.Content.IsEmpty() ? TEXT("…") : Message.Content))))
+					.Font(FAppStyle::Get().GetFontStyle("SmallFont"))
+					.ColorAndOpacity(Color)
+					.AutoWrapText(true)
+			];
+	}
 
 	if (ChatScroll.IsValid())
 	{
 		ChatScroll->ScrollToEnd();
 	}
+
+	if (ChatStatusText.IsValid())
+	{
+		FString Status = ChatBackendStatus;
+		if (!ChatStatus.IsEmpty())
+		{
+			Status = Status.IsEmpty() ? ChatStatus : Status + TEXT(" · ") + ChatStatus;
+		}
+		if (!ChatLastError.IsEmpty())
+		{
+			Status += TEXT(" · ") + ChatLastError;
+		}
+		ChatStatusText->SetText(FText::FromString(Status));
+		ChatStatusText->SetColorAndOpacity(
+			ChatLastError.IsEmpty() ? MutedTextColor() : FSlateColor(FLinearColor(0.95f, 0.55f, 0.45f)));
+	}
+}
+
+void SEpicodeFocusedShell::ShowChatSettings()
+{
+	const UEpicodeSettings* Settings = UEpicodeSettings::Get();
+	FString Key;
+	FString Source;
+	FString KeyError;
+	const bool bHasKey = FConversationSecretStore::Read(Key, Source, KeyError);
+	const FString KeyLine = bHasKey
+		? FString::Printf(TEXT("API Key：%s（来源：%s）"),
+			*FConversationSecretStore::Mask(Key), *Source)
+		: FString::Printf(TEXT("API Key：未配置（%s）"), *KeyError);
+
+	const FString Message = FString::Printf(
+		TEXT("后端：%s\n模型：%s\n端点：%s\n上下文上限：%d 字符\n修复尝试：%d\n请求超时：%d 秒\n\n%s\nKey 文件：%s\n环境变量：%s\n\n")
+		TEXT("当前构建尚未包含 DeepSeek 网络传输；可设置 AssistantBackend=mock 做离线演示。\n")
+		TEXT("Key 只从环境变量或本地文件读取，不会写入仓库或日志。"),
+		Settings != nullptr ? *Settings->AssistantBackend : TEXT("deepseek_sidecar"),
+		Settings != nullptr ? *Settings->AssistantModel : TEXT("deepseek-chat"),
+		Settings != nullptr ? *Settings->AssistantEndpoint : TEXT("https://api.deepseek.com"),
+		Settings != nullptr ? Settings->AssistantMaxContextChars : 12000,
+		Settings != nullptr ? Settings->AssistantMaxRepairAttempts : 2,
+		Settings != nullptr ? Settings->AssistantRequestTimeoutSeconds : 60,
+		*KeyLine,
+		*FConversationSecretStore::GetDefaultKeyFilePath(),
+		*FConversationSecretStore::GetEnvironmentVariableName());
+	FMessageDialog::Open(EAppMsgType::Ok, FText::FromString(Message));
+}
+
+FString SEpicodeFocusedShell::GetChatTranscriptForSmokeTest() const
+{
+	FString Result;
+	for (const FConversationMessage& Message : ChatMessages)
+	{
+		Result += FString::Printf(
+			TEXT("[%s] %s\n"),
+			*FConversationMessage::RoleToString(Message.Role),
+			*Message.Content);
+	}
+	return Result;
+}
+
+FString SEpicodeFocusedShell::GetChatBackendNameForSmokeTest() const
+{
+	return ChatBackend.IsValid() ? ChatBackend->GetName() : FString();
+}
+
+void SEpicodeFocusedShell::SetAssistantBackendForSmokeTest(
+	TSharedPtr<IConversationBackend> InBackend)
+{
+	if (ChatStream.IsValid())
+	{
+		ChatStream->Cancel();
+		ChatStream.Reset();
+	}
+	ChatBackend = MoveTemp(InBackend);
+	FString Reason;
+	ChatBackendStatus = ChatBackend.IsValid() && ChatBackend->IsAvailable(Reason)
+		? FString::Printf(TEXT("%s 就绪"), *ChatBackend->GetName())
+		: FString::Printf(TEXT("后端不可用：%s"), *Reason);
+	ChatStatus = ChatBackendStatus;
+	ChatLastError.Reset();
+	RefreshChatHistory();
+}
+
+void SEpicodeFocusedShell::SetAssistantBackendByNameForSmokeTest(const FString& BackendName)
+{
+	SetAssistantBackendForSmokeTest(CreateConversationBackend(BackendName));
+}
+
+bool SEpicodeFocusedShell::SendChatMessageForSmokeTest(const FString& Message)
+{
+	return SendChatMessage(Message);
+}
+
+void SEpicodeFocusedShell::PollChatForSmokeTest()
+{
+	PollChatStream(1.0f / 60.0f);
+}
+
+void SEpicodeFocusedShell::StopChatForSmokeTest()
+{
+	StopChat();
+}
+
+bool SEpicodeFocusedShell::LoadChatConversationForSmokeTest(const FString& ConversationId)
+{
+	return LoadChatConversation(ConversationId);
 }
 
 void SEpicodeFocusedShell::NewChat()
 {
-	if (ChatHistoryBox.IsValid())
+	if (ChatStream.IsValid())
 	{
-		ChatHistoryBox->ClearChildren();
+		ChatStream->Cancel();
+		ChatStream.Reset();
 	}
-	AddChatLine(TEXT("系统"), TEXT("新对话。对话后端尚未配置。"));
+	ChatMessages.Reset();
+	ChatConversationId = FConversationHistoryStore::NewConversationId();
+	ChatLastUserMessage.Reset();
+	ChatLastError.Reset();
+	ChatStatus = TEXT("新对话");
+	AddChatLine(TEXT("系统"), FString::Printf(TEXT("新对话。%s"), *ChatBackendStatus));
+	SaveChatHistory();
+	RefreshChatHistory();
 }
 
 void SEpicodeFocusedShell::ClearChat()
 {
-	if (ChatHistoryBox.IsValid())
+	if (ChatStream.IsValid())
 	{
-		ChatHistoryBox->ClearChildren();
+		ChatStream->Cancel();
+		ChatStream.Reset();
 	}
+	ChatMessages.Reset();
+	ChatLastUserMessage.Reset();
+	ChatLastError.Reset();
+	ChatStatus = TEXT("已清空");
+	SaveChatHistory();
 	AddChatLine(TEXT("系统"), TEXT("对话已清空。"));
+}
+
+void SEpicodeFocusedShell::DeleteChat()
+{
+	if (FMessageDialog::Open(
+		EAppMsgType::YesNo,
+		LOCTEXT("DeleteChatConfirm", "删除当前会话的本地历史？此操作不可撤销。"))
+		!= EAppReturnType::Yes)
+	{
+		return;
+	}
+
+	if (ChatStream.IsValid())
+	{
+		ChatStream->Cancel();
+		ChatStream.Reset();
+	}
+
+	FString DeleteError;
+	if (!ChatConversationId.IsEmpty()
+		&& !FConversationHistoryStore::Delete(ChatConversationId, DeleteError))
+	{
+		// A brand-new conversation has no file yet; only surface real failures.
+		if (!DeleteError.Contains(TEXT("不存在")))
+		{
+			AddChatLine(TEXT("错误"), DeleteError);
+		}
+	}
+
+	ChatMessages.Reset();
+	ChatLastUserMessage.Reset();
+	ChatLastError.Reset();
+	ChatConversationId = FConversationHistoryStore::NewConversationId();
+	ChatStatus = TEXT("会话已删除");
+	AddChatLine(TEXT("系统"), TEXT("当前会话已删除，已开始新对话。"));
+	RefreshChatHistory();
 }
 
 FString SEpicodeFocusedShell::GetSceneNameInput() const

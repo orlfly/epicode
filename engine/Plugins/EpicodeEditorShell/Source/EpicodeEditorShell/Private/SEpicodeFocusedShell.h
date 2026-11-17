@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "EpicodeAssistantTypes.h"
 #include "EpicodeFocusedShellModel.h"
 #include "EpicodeTypes.h"
 #include "InputCoreTypes.h"
@@ -20,6 +21,8 @@ class SVerticalBox;
 class SEpicodeFocusedLevelViewport;
 class FDragDropEvent;
 class SWidget;
+class IConversationBackend;
+class IConversationStream;
 
 enum class EEpicodeImportConflictChoice : uint8
 {
@@ -51,6 +54,17 @@ public:
 	void CloseMenuForSmokeTest(const FString& Label);
 	TArray<FString> GetMenuLabelsForSmokeTest() const;
 	bool ProcessShortcutForSmokeTest(const FKey& Key, bool bCtrl = false, bool bShift = false);
+	void SetAssistantBackendForSmokeTest(TSharedPtr<IConversationBackend> InBackend);
+	void SetAssistantBackendByNameForSmokeTest(const FString& BackendName);
+	bool SendChatMessageForSmokeTest(const FString& Message);
+	void PollChatForSmokeTest();
+	void StopChatForSmokeTest();
+	bool LoadChatConversationForSmokeTest(const FString& ConversationId);
+	FString GetChatTranscriptForSmokeTest() const;
+	FString GetChatStatusForSmokeTest() const { return ChatStatus; }
+	FString GetChatConversationIdForSmokeTest() const { return ChatConversationId; }
+	FString GetChatBackendNameForSmokeTest() const;
+	int32 GetChatMessageCountForSmokeTest() const { return ChatMessages.Num(); }
 	bool RetryViewportForSmokeTest();
 	bool ImportSceneFromFileForSmokeTest(
 		const FString& SourcePath, bool bAssignNewId = false);
@@ -201,8 +215,21 @@ private:
 	void SyncSelectionFromViewport();
 	void SelectEntity(const FGuid& InId, bool bFocus);
 	void AddChatLine(const FString& Speaker, const FString& Text);
+	void InitializeChat();
+	TSharedPtr<IConversationBackend> CreateConversationBackend(
+		const FString& BackendName) const;
+	FString BuildChatContext() const;
+	bool SendChatMessage(const FString& Message);
+	void RetryChat();
+	void StopChat();
+	void PollChatStream(float DeltaSeconds);
+	void RefreshChatHistory();
+	void SaveChatHistory();
+	bool LoadChatConversation(const FString& ConversationId);
+	void ShowChatSettings();
 	void NewChat();
 	void ClearChat();
+	void DeleteChat();
 	FString GetSceneNameInput() const;
 
 	void NewScene();
@@ -296,6 +323,11 @@ private:
 	TSharedPtr<STextBlock> StatusRevisionText;
 	TSharedPtr<STextBlock> StatusMessageText;
 	TSharedPtr<STextBlock> ChatStatusText;
+	TSharedPtr<class SButton> ChatSendButton;
+	TSharedPtr<class SButton> ChatStopButton;
+	TSharedPtr<IConversationBackend> ChatBackend;
+	TSharedPtr<IConversationStream> ChatStream;
+	TArray<FConversationMessage> ChatMessages;
 
 	FString ObjectSearch;
 	FString TypeFilter = TEXT("All");
@@ -319,6 +351,12 @@ private:
 	FString LastSignature;
 	FString LastAssetSignature;
 	FString LastInspectorSignature;
+	FString ChatConversationId;
+	FString ChatStatus;
+	FString ChatLastUserMessage;
+	FString ChatLastError;
+	FString ChatBackendStatus;
+	FString ChatRenderedSignature;
 	TArray<FString> RecentSceneIds;
 	FVector SavedCameraLocation = FVector::ZeroVector;
 	FRotator SavedCameraRotation = FRotator::ZeroRotator;
@@ -327,6 +365,8 @@ private:
 	FVector InspectorSnapGrid = FVector(10.0);
 	double LastRefreshTime = 0.0;
 	double LastLayoutSaveTime = 0.0;
+	double LastChatPollTime = 0.0;
+	double ChatStreamStartedAt = 0.0;
 	bool bHasSavedCamera = false;
 	bool bLayoutDirty = false;
 	bool bSkipViewportForSmoke = false;
@@ -334,4 +374,6 @@ private:
 	bool bRightPanelVisible = true;
 	bool bInspectorWorldSpace = false;
 	bool bInspectorSnap = false;
+	bool bChatInitialized = false;
+	bool bChatStreamFinished = false;
 };

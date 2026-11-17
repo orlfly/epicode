@@ -19,6 +19,7 @@
 		{ "Name": "EpicodeControlAPI", "Enabled": true },
 		{ "Name": "EpicodeStudio", "Enabled": true },
 		{ "Name": "EpicodeEditorShell", "Enabled": true },
+		{ "Name": "EpicodeAssistant", "Enabled": true },
 		{ "Name": "EpicodeRender", "Enabled": true },
 		{ "Name": "MovieRenderPipeline", "Enabled": true },
 		{ "Name": "WebSocketNetworking", "Enabled": true },
