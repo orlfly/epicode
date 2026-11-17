@@ -85,6 +85,7 @@ License 价格备注：表内为 Personal。Professional 另计：London ¥2,667
 - 为不改动原包引用，使用 UE Python `EditorAssetLibrary.duplicate_asset` 把 `Demo_Environment` 复制为 `/Game/Epicode/Scenes/DowntownWest`，文件 `engine/Content/Epicode/Scenes/DowntownWest.umap`（51,820,973 bytes）。复制后的地图仍引用 `Content/Downtown_West` 下的原资产，因此原包不能删除。
 - 用 `UnrealEditor-Cmd ... /Game/Epicode/Scenes/DowntownWest -game -nullrhi ... -ExecCmds=quit` 加载验证：退出码 0，`LogLoad: Took 1.928296 seconds to LoadMap(/Game/Epicode/Scenes/DowntownWest)`，无地图加载错误。
 - 通过控制 API 创建 Epicode 场景 `Downtown West`，`sceneId=01A1DAC5-004D-7F5D-B11E-A02B53A2EED2`，`levelPath=/Game/Epicode/Scenes/DowntownWest`；`scene.save` 写入 `engine/Saved/Epicode/Scenes/01A1DAC5-004D-7F5D-B11E-A02B53A2EED2/scene.json`。`scene.close` 后 `scene.open` 重开成功，`scene.runtime.get` 返回同一 `levelPath`。
+- 渲染工作进程会加载场景的 `levelPath` 基础地图并叠加 Epicode 实体和相机。Downtown West 已完成 640x360 单帧渲染验证，输出可见街道、建筑、植被和天空；多机位和长序列渲染仍待验收。
 - 场景默认相机已对齐地图内 `CineCameraActor`：位置 `(-71.846, 1130.894, 124.521)`，旋转 `(pitch=-6.200, yaw=-112.994, roll=0.000)`；Viewer runtime 的 `cameraIds` 和 `defaultCameraId` 均指向该相机。
 - 说明：UE 地图资产在 `Content/Epicode/Scenes`，Epicode 场景文档按引擎设计存放在 `Saved/Epicode/Scenes`，不在 `Content`。两者通过 `levelPath` 关联。
 

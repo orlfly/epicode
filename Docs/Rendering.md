@@ -65,6 +65,8 @@ curl -sS -X POST http://127.0.0.1:8710/api/v1/command \
 
 默认一次只运行一个渲染任务（`RenderConcurrency=1`）；已有任务运行时提交的新任务进入 `queued`，前一个任务结束后自动启动。排队任务可直接取消。运行超过 `RenderTimeoutSeconds`（默认 1800 秒）的任务会被终止并标记 `RENDER_TIMEOUT`。
 
+如果场景文档的 `levelPath` 指向存在的 UE 地图（例如 `/Game/Epicode/Scenes/DowntownWest`），工作进程会先加载该地图作为基础关卡，再叠加 Epicode 实体、环境和相机，然后保存为本次任务的临时关卡。这样导入的街景地图内容会进入最终画面；没有有效 `levelPath` 的场景仍使用空白临时关卡。渲染相机以 Level Sequence 的可生成对象（spawnable）创建，避免 PIE 复制地图后找不到场景相机。
+
 父进程在标记成功前校验产物：文件数量等于 `endFrame - startFrame`（MP4 为 1），文件非空，PNG/JPG 的分辨率与请求一致。每个产物的 SHA-1 写入 `result.json` 和 `job.json` 的 `checksums` 字段。
 
 失败时 `result.json` 写入 `retryable` 和 `diagnostics`：显存不足和 GPU 设备丢失标记为可重试，磁盘写满、缺少相机/场景资产标记为不可重试，并给出对应诊断。`system.health` 同时返回 `gpuAdapter`、`gpuVendorId` 和 `gpuDeviceId`。

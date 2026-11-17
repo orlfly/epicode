@@ -36,7 +36,7 @@
 
 | 检查 | 结果 | 说明 |
 | --- | --- | --- |
-| UE 5.8 导入 | 部分完成 | 12GB 资源已复制到 `engine/Content/Downtown_West` 并通过 checksum；`Demo_Environment` 已复制为 `/Game/Epicode/Scenes/DowntownWest` 并用 `-game -nullrhi` 加载成功（1.93s）；Epicode 场景 `Downtown West` 已创建并重开验证。尚未做完整 5.6→5.8 资产逐项迁移、材质/LOD 检查和多机位渲染。 |
+| UE 5.8 导入 | 部分完成 | 12GB 资源已复制到 `engine/Content/Downtown_West` 并通过 checksum；`Demo_Environment` 已复制为 `/Game/Epicode/Scenes/DowntownWest` 并用 `-game -nullrhi` 加载成功（1.93s）；Epicode 场景 `Downtown West` 已创建并重开验证。渲染工作进程现在会加载 `levelPath` 基础地图，已完成 Downtown West 640x360 单帧渲染验证；仍待完整 5.6→5.8 资产逐项迁移、材质/LOD 检查和多机位/长序列渲染验收。 |
 
 ## 复现要点
 

@@ -2,11 +2,14 @@
 
 #include "EpicodeRenderModule.h"
 #include "AssetRegistry/AssetRegistryModule.h"
+#include "Camera/CameraActor.h"
+#include "Camera/CameraComponent.h"
 #include "Editor.h"
 #include "Editor/EditorEngine.h"
 #include "EditorAssetLibrary.h"
 #include "EpicodeCommand.h"
 #include "EpicodeEntityActors.h"
+#include "EpicodeSceneLibrary.h"
 #include "EpicodeSceneSubsystem.h"
 #include "EpicodeSettings.h"
 #include "FileHelpers.h"
@@ -36,6 +39,22 @@
 
 namespace
 {
+	FString ResolveSceneLevelPath(const FString& InSceneId)
+	{
+		FEpicodeSceneLibraryEntry Entry;
+		if (!FEpicodeSceneLibrary::Find(UEpicodeSettings::Get()->GetSceneRootPath(), InSceneId, Entry))
+		{
+			return FString();
+		}
+		FEpicodeSceneDocument Document;
+		FString Error;
+		if (!FEpicodeSceneLibrary::Load(Entry.DocumentPath, Document, Error) || Document.LevelPath.IsEmpty())
+		{
+			return FString();
+		}
+		return FPackageName::DoesPackageExist(Document.LevelPath) ? Document.LevelPath : FString();
+	}
+
 	FString SerializeJson(const TSharedPtr<FJsonObject>& Json)
 	{
 		FString Text;
@@ -545,21 +564,29 @@ bool FEpicodeRenderService::RunWorker(const FString& RequestPath)
 	IFileManager::Get().MakeDirectory(*FPaths::Combine(FPaths::ProjectContentDir(), TEXT("Epicode/Generated/Sequences")), true);
 	const FString MapPackage = FString::Printf(TEXT("/Game/Epicode/Generated/Maps/M_%s"), *SafeId);
 
-	UWorld* World = UEditorLoadingAndSavingUtils::NewBlankMap(false);
+	const FString BaseLevelPath = ResolveSceneLevelPath(Request.SceneId);
+	UWorld* World = nullptr;
+	if (!BaseLevelPath.IsEmpty())
+	{
+		if (FEditorFileUtils::LoadMap(BaseLevelPath, false, false) && GEditor)
+		{
+			World = GEditor->GetEditorWorldContext().World();
+			UE_LOG(LogEpicodeRender, Log, TEXT("Render worker loaded scene level %s"), *BaseLevelPath);
+		}
+		else
+		{
+			UE_LOG(LogEpicodeRender, Warning, TEXT("Render worker could not load scene level %s; using a blank map"), *BaseLevelPath);
+		}
+	}
+	if (!World)
+	{
+		World = UEditorLoadingAndSavingUtils::NewBlankMap(false);
+	}
 	if (!World)
 	{
 		FEpicodeRenderResult Result;
 		Result.ErrorCode = TEXT("RENDER_WORKER_NO_WORLD");
 		Result.ErrorMessage = TEXT("Unable to create a blank render map.");
-		WriteResultFile(JobDirectory, Result);
-		FPlatformMisc::RequestExit(false);
-		return false;
-	}
-	if (!UEditorLoadingAndSavingUtils::SaveMap(World, MapPackage))
-	{
-		FEpicodeRenderResult Result;
-		Result.ErrorCode = TEXT("RENDER_WORKER_MAP_FAILED");
-		Result.ErrorMessage = TEXT("Unable to save the blank render map.");
 		WriteResultFile(JobDirectory, Result);
 		FPlatformMisc::RequestExit(false);
 		return false;
@@ -610,8 +637,26 @@ bool FEpicodeRenderService::RunWorker(const FString& RequestPath)
 	const FFrameNumber StartFrame = FFrameRate::TransformTime(FFrameTime(FFrameNumber(Request.StartFrame)), DisplayRate, TickRate).FloorToFrame();
 	const FFrameNumber EndFrame = FFrameRate::TransformTime(FFrameTime(FFrameNumber(Request.EndFrame)), DisplayRate, TickRate).CeilToFrame();
 	MovieScene->SetPlaybackRange(StartFrame, (EndFrame - StartFrame).Value);
-	const FGuid CameraBinding = MovieScene->AddPossessable(CameraActorName(CameraActor), CameraActor->GetClass());
-	Sequence->BindPossessableObject(CameraBinding, *CameraActor, World);
+	ACameraActor* CameraTemplate = NewObject<ACameraActor>(
+		Sequence, TEXT("EpicodeRenderCamera"), RF_Transactional);
+	CameraTemplate->SetActorTransform(CameraActor->GetActorTransform());
+	if (const ACameraActor* SourceCameraActor = Cast<ACameraActor>(CameraActor))
+	{
+		if (const UCameraComponent* SourceCamera = SourceCameraActor->GetCameraComponent())
+		{
+			if (UCameraComponent* TemplateCamera = CameraTemplate->GetCameraComponent())
+			{
+				TemplateCamera->SetFieldOfView(SourceCamera->FieldOfView);
+				TemplateCamera->SetAspectRatio(SourceCamera->AspectRatio);
+				TemplateCamera->SetConstraintAspectRatio(SourceCamera->bConstrainAspectRatio);
+				TemplateCamera->SetProjectionMode(SourceCamera->ProjectionMode);
+				TemplateCamera->SetOrthoWidth(SourceCamera->OrthoWidth);
+				TemplateCamera->SetPostProcessBlendWeight(SourceCamera->PostProcessBlendWeight);
+				TemplateCamera->PostProcessSettings = SourceCamera->PostProcessSettings;
+			}
+		}
+	}
+	const FGuid CameraBinding = MovieScene->AddSpawnable(CameraActorName(CameraActor), *CameraTemplate);
 	if (UMovieSceneCameraCutTrack* CutTrack = MovieScene->AddTrack<UMovieSceneCameraCutTrack>())
 	{
 		const FMovieSceneObjectBindingID Binding = FMovieSceneObjectBindingID(UE::MovieScene::FRelativeObjectBindingID(CameraBinding));
