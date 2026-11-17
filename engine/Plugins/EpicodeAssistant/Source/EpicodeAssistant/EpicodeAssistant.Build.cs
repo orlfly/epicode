@@ -18,6 +18,7 @@ public class EpicodeAssistant : ModuleRules
 
 		PrivateDependencyModuleNames.AddRange(new string[]
 		{
+			"HTTP",
 			"Projects",
 		});
 	}

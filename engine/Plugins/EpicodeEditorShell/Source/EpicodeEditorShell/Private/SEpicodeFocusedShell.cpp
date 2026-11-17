@@ -9,6 +9,7 @@
 #include "DesktopPlatformModule.h"
 #include "EpicodeAssistantContext.h"
 #include "EpicodeAssistantHistory.h"
+#include "EpicodeAssistantOpenAI.h"
 #include "EpicodeAssistantSecrets.h"
 #include "EpicodeAssistantTypes.h"
 #include "EpicodeEntityActors.h"
@@ -4253,6 +4254,22 @@ TSharedPtr<IConversationBackend> SEpicodeFocusedShell::CreateConversationBackend
 	if (Lower == TEXT("mock"))
 	{
 		return MakeShared<FMockConversationBackend>();
+	}
+	if (Lower == TEXT("openai_compat") || Lower == TEXT("deepseek_http")
+		|| Lower == TEXT("openai-compatible"))
+	{
+		FString Key;
+		FString Source;
+		FString KeyError;
+		if (!FConversationSecretStore::Read(Key, Source, KeyError))
+		{
+			return MakeShared<FUnavailableConversationBackend>(KeyError);
+		}
+		return MakeShared<FOpenAICompatibleChatBackend>(
+			Settings != nullptr ? Settings->AssistantEndpoint : TEXT("https://api.deepseek.com"),
+			Settings != nullptr ? Settings->AssistantModel : TEXT("deepseek-chat"),
+			Key,
+			Settings != nullptr ? static_cast<float>(Settings->AssistantRequestTimeoutSeconds) : 120.0f);
 	}
 	if (Lower == TEXT("unavailable") || Lower == TEXT("none"))
 	{

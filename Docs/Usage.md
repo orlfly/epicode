@@ -81,7 +81,7 @@ cd engine
 - 菜单中每个资产还有“删除文件”项：删除前检查当前场景和所有已保存场景的网格引用，命中时列出场景/实体并拒绝删除；无引用时删除 `.uasset` 并同步移除索引。
 - 右侧对话面板支持输入消息、`Ctrl+Enter` 发送、流式显示、停止、重发上一条、清空、新建会话和删除当前会话；消息历史保存到 `Saved/Epicode/Chat/`，启动时恢复最近会话。
 - 对话后端不可用、请求超时、后端报错或用户停止时，错误只显示在对话面板和状态行，不影响视口、对象编辑、本地库和保存。
-- 当前构建包含 Mock 后端，用于离线演示和自动化测试；在 `DefaultEpicode.ini` 设置 `AssistantBackend=mock` 后可看到完整流式交互。DeepSeek sidecar/HTTP 真实后端等待 SDK 安装来源，默认 `deepseek_sidecar` 会显示不可用原因。
+- 当前构建包含 Mock 后端和 OpenAI 兼容 HTTP/SSE 降级：`AssistantBackend=mock` 用于离线演示，`AssistantBackend=openai_compat` 直接调用 DeepSeek `/chat/completions`（需要 Key），默认 `deepseek_sidecar` 在 sidecar 未接入时显示不可用原因。
 - API Key 优先从环境变量 `DEEPSEEK_API_KEY` 读取，其次从 `Saved/Epicode/deepseek.env` 读取；文件中写 `DEEPSEEK_API_KEY=<key>`，权限应为 0600。对话设置对话框只显示掩码，不显示完整密钥。
 - `Q/W/E/R/F/Delete/Ctrl+Z/Ctrl+Shift+Z/Ctrl+Y/Ctrl+S` 快捷键；`Delete` 和 `Ctrl+S` 走 Epicode 命令，不绕过场景文档。
 - 状态栏显示场景、选择、变换模式、库/对话状态、revision 和保存状态。

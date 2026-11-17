@@ -52,14 +52,14 @@
 - [ ] 5.4 实现 `Scripts/Assistant/DeepSeekHarnessSidecar.py`：隔离 venv、SDK import、JSONL stdio 协议、流式 delta/done/error、cancel、ping、shutdown、空闲退出和 stderr 诊断
 - [ ] 5.5 实现 `FDeepSeekHarnessSidecarBackend`：启动/复用 sidecar、`FPlatformProcess` 管道读写、请求 ID 路由、超时、崩溃重启、取消和不可用降级
 - [ ] 5.6 实现可选 HTTP 模式：sidecar `/health`、`/v1/chat` SSE、`/v1/cancel`，本地 token 鉴权，默认仍用 stdio
-- [ ] 5.7 实现 `FOpenAICompatibleChatBackend` 作为 DeepSeek API 兼容/降级后端，复用同一接口
+- [x] 5.7 实现 `FOpenAICompatibleChatBackend` 作为 DeepSeek API 兼容/降级后端，复用同一接口（HTTP/SSE，DeepSeek `/chat/completions`）
 - [x] 5.8 实现 `FMockConversationBackend`，支持脚本化流式回复、超时、取消、崩溃和错误，供自动化测试
 - [x] 5.9 实现配置：`bEnabled`、`Backend`、`SidecarCommand`、`SidecarScript`、`SidecarMode`、`Endpoint`、`Model`、`ApiKeyFile`、`MaxContextTokens`、`MaxRepairAttempts`、`RequestTimeoutSeconds`、`SidecarIdleSeconds`
 - [x] 5.10 实现密钥读取和掩码：环境变量/`Saved/Epicode/deepseek.env` 0600，sidecar 不把密钥写入命令行，日志/审计/错误脱敏
 - [x] 5.11 实现上下文构建：场景摘要、当前选择、本地库摘要、命令 schema、约束、最近对话；超限本地裁剪
 - [x] 5.12 实现对话历史持久化：`Saved/Epicode/Chat/<conversationId>.json`，新建/清空/删除/恢复
-- [x] 5.13 实现后端不可用/超时/禁用/sidecar 崩溃的降级：对话面板显示错误，手工编辑、视口、库和保存不受影响（真实 sidecar 崩溃路径待 5.3–5.7；Mock 崩溃/超时已覆盖）
-- [ ] 5.14 编写 `Epicode.Assistant.Chat`、`SidecarProtocol`、`BackendFailure`、`ContextBudget`、`Secrets` 自动化测试（Chat/ContextBudget/Secrets/MockBackend 已通过；SidecarProtocol 待 5.3–5.7）
+- [x] 5.13 实现后端不可用/超时/禁用/sidecar 崩溃的降级：对话面板显示错误，手工编辑、视口、库和保存不受影响（真实 sidecar 崩溃路径待 5.3–5.6；Mock 崩溃/超时已覆盖）
+- [ ] 5.14 编写 `Epicode.Assistant.Chat`、`SidecarProtocol`、`BackendFailure`、`ContextBudget`、`Secrets` 自动化测试（Chat/ContextBudget/Secrets/MockBackend/HttpParser/HttpBackend 已通过；SidecarProtocol 待 5.3–5.6）
 
 ## 6. 编辑脚本与 AI 应用闭环
 

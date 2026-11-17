@@ -100,7 +100,7 @@ public:
 	UPROPERTY(EditAnywhere, Config, Category = "Assistant")
 	bool bAssistantEnabled = true;
 
-	/** mock, unavailable, or a future transport such as deepseek_sidecar. */
+	/** mock, openai_compat (DeepSeek HTTP/SSE), deepseek_sidecar (pending), or unavailable. */
 	UPROPERTY(EditAnywhere, Config, Category = "Assistant")
 	FString AssistantBackend = TEXT("deepseek_sidecar");
 

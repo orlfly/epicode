@@ -2,11 +2,13 @@
 
 #include "EpicodeAssistantContext.h"
 #include "EpicodeAssistantHistory.h"
+#include "EpicodeAssistantOpenAI.h"
 #include "EpicodeAssistantSecrets.h"
 #include "EpicodeAssistantTypes.h"
 #include "EpicodeSettings.h"
 #include "HAL/FileManager.h"
 #include "HAL/PlatformMisc.h"
+#include "HAL/PlatformProcess.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 
@@ -273,6 +275,149 @@ bool FEpicodeAssistantMockBackendTest::RunTest(const FString& Parameters)
 	FUnavailableConversationBackend Unavailable(TEXT("未配置"));
 	TestFalse(TEXT("unavailable reports reason"), Unavailable.IsAvailable(Error));
 	TestEqual(TEXT("unavailable reason"), Error, FString(TEXT("未配置")));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FEpicodeAssistantHttpParserTest,
+	"Epicode.Assistant.HttpParser",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FEpicodeAssistantHttpParserTest::RunTest(const FString& Parameters)
+{
+	FOpenAICompatibleSseParser Parser;
+	TArray<FConversationEvent> Events;
+
+	// Split inside the UTF-8 bytes of Chinese text and inside the SSE line.
+	const FString First =
+		TEXT("data: {\"choices\":[{\"delta\":{\"content\":\"你好\"}}]}\n");
+	const FTCHARToUTF8 FirstUtf8(*First);
+	const int32 Split = FMath::Max(1, FirstUtf8.Length() / 2);
+	Parser.Append(FirstUtf8.Get(), Split, TEXT("req-1"));
+	Parser.TakeEvents(Events);
+	TestEqual(TEXT("partial chunk emits nothing"), Events.Num(), 0);
+	Parser.Append(
+		FirstUtf8.Get() + Split,
+		FirstUtf8.Length() - Split,
+		TEXT("req-1"));
+	Parser.TakeEvents(Events);
+	TestEqual(TEXT("delta decoded"), Events.Num(), 1);
+	TestEqual(TEXT("delta text"), Events[0].Text, FString(TEXT("你好")));
+	TestEqual(TEXT("delta request id"), Events[0].RequestId, FString(TEXT("req-1")));
+
+	Parser.Append(
+		TEXT("data: {\"choices\":[{\"delta\":{\"content\":\"，世界\"}}]}\r\n"),
+		TEXT("req-1"));
+	Parser.Append(TEXT("data: [DONE]\n"), TEXT("req-1"));
+	Events.Reset();
+	Parser.TakeEvents(Events);
+	TestEqual(TEXT("second delta"), Events.Num(), 1);
+	TestTrue(TEXT("parser done"), Parser.IsDone());
+	TestTrue(TEXT("parser saw output"), Parser.HasOutput());
+
+	FOpenAICompatibleSseParser ErrorParser;
+	ErrorParser.Append(
+		TEXT("data: {\"error\":{\"code\":\"invalid_key\",\"message\":\"密钥无效\"}}\n"),
+		TEXT("req-2"));
+	Events.Reset();
+	ErrorParser.TakeEvents(Events);
+	TestEqual(TEXT("error event"), Events.Num(), 1);
+	TestEqual(TEXT("error type"), Events[0].Type, EConversationEventType::Error);
+	TestEqual(TEXT("error code"), Events[0].ErrorCode, FString(TEXT("invalid_key")));
+	TestTrue(TEXT("error terminal"), ErrorParser.IsDone());
+
+	TestEqual(TEXT("chat url"),
+		FOpenAICompatibleChatBackend::MakeChatUrl(TEXT("https://api.deepseek.com/")),
+		FString(TEXT("https://api.deepseek.com/chat/completions")));
+	FOpenAICompatibleChatBackend MissingKey(TEXT("https://api.deepseek.com"), TEXT("deepseek-chat"), FString());
+	FString Reason;
+	TestFalse(TEXT("missing key unavailable"), MissingKey.IsAvailable(Reason));
+	TestTrue(TEXT("missing key reason"), Reason.Contains(TEXT("DEEPSEEK_API_KEY")));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FEpicodeAssistantHttpBackendTest,
+	"Epicode.Assistant.HttpBackend",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FEpicodeAssistantHttpBackendTest::RunTest(const FString& Parameters)
+{
+	const FString Script = FPaths::ConvertRelativePathToFull(FPaths::Combine(
+		FPaths::ProjectDir(), TEXT("Scripts/Assistant/TestSseServer.py")));
+	if (!IFileManager::Get().FileExists(*Script))
+	{
+		AddWarning(TEXT("local SSE fixture is missing; backend integration skipped"));
+		return true;
+	}
+
+	const int32 Port = 18721;
+	FProcHandle Server = FPlatformProcess::CreateProc(
+		TEXT("python3"),
+		*FString::Printf(TEXT("\"%s\" %d"), *Script, Port),
+		false,
+		true,
+		true,
+		nullptr,
+		0,
+		*FPaths::GetPath(Script),
+		nullptr,
+		nullptr);
+	if (!Server.IsValid())
+	{
+		AddWarning(TEXT("python3 unavailable; HTTP backend integration skipped"));
+		return true;
+	}
+
+	FPlatformProcess::Sleep(0.5f);
+	FOpenAICompatibleChatBackend Backend(
+		FString::Printf(TEXT("http://127.0.0.1:%d"), Port),
+		TEXT("test-model"),
+		TEXT("test-key-1234567890"));
+	FString Error;
+	TestTrue(TEXT("local backend available"), Backend.IsAvailable(Error));
+
+	FConversationRequest Request;
+	Request.RequestId = TEXT("http-test-request");
+	Request.Prompt = TEXT("你好");
+	TSharedPtr<IConversationStream> Stream = Backend.Start(Request, Error);
+	TestTrue(TEXT("HTTP stream started"), Stream.IsValid());
+
+	FString Text;
+	bool bDone = false;
+	for (int32 Attempt = 0; Stream.IsValid() && Attempt < 200 && !bDone; ++Attempt)
+	{
+		FPlatformProcess::Sleep(0.01f);
+		TArray<FConversationEvent> Events;
+		Stream->Poll(Events);
+		for (const FConversationEvent& Event : Events)
+		{
+			if (Event.Type == EConversationEventType::Delta)
+			{
+				Text += Event.Text;
+			}
+			else if (Event.Type == EConversationEventType::Done)
+			{
+				bDone = true;
+			}
+			else if (Event.Type == EConversationEventType::Error)
+			{
+				AddError(FString::Printf(TEXT("HTTP backend error: %s"), *Event.ErrorMessage));
+				bDone = true;
+			}
+		}
+	}
+	TestEqual(TEXT("SSE text assembled"), Text, FString(TEXT("你好")));
+	TestTrue(TEXT("HTTP stream completed"), bDone);
+
+	if (Stream.IsValid())
+	{
+		Stream->Cancel();
+		Stream.Reset();
+	}
+	FPlatformProcess::TerminateProc(Server, true);
+	FPlatformProcess::WaitForProc(Server);
+	FPlatformProcess::CloseProc(Server);
 	return true;
 }
 
