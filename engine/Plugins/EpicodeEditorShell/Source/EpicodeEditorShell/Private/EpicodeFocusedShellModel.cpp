@@ -265,6 +265,21 @@ FEpicodeCommandResult FEpicodeFocusedShellModel::Execute(
 	return Result;
 }
 
+FEpicodeCommandResult FEpicodeFocusedShellModel::QueryCommand(
+	const FString& Method, const TSharedPtr<FJsonObject>& Params) const
+{
+	UEpicodeEngineSubsystem* Engine = UEpicodeEngineSubsystem::Get();
+	if (!Engine || !Engine->GetCommandRegistry())
+	{
+		return FEpicodeCommandResult::Failure(
+			TEXT("NOT_INITIALIZED"), TEXT("Epicode engine subsystem is not ready."));
+	}
+	FEpicodeCommandContext Context;
+	Context.World = UEpicodeSceneSubsystem::GetPrimaryWorld();
+	Context.Source = TEXT("focused");
+	return Engine->ExecuteCommand(Method, Params, Context);
+}
+
 const FEpicodeFocusedEntityRow* FEpicodeFocusedShellModel::FindEntity(const FGuid& InId) const
 {
 	return Entities.FindByPredicate([&InId](const FEpicodeFocusedEntityRow& Row)

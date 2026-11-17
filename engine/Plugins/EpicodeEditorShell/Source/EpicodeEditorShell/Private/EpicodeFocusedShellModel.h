@@ -47,6 +47,8 @@ public:
 	void HideAsset(const FString& AssetPath);
 	void RestoreHiddenAssets();
 	FEpicodeCommandResult Execute(const FString& Method, const TSharedPtr<FJsonObject>& Params = nullptr);
+	FEpicodeCommandResult QueryCommand(
+		const FString& Method, const TSharedPtr<FJsonObject>& Params = nullptr) const;
 
 	const TArray<FEpicodeFocusedEntityRow>& GetEntities() const { return Entities; }
 	const TArray<FEpicodeFocusedSceneRow>& GetScenes() const { return Scenes; }

@@ -47,6 +47,21 @@ public:
 	FString GetLastImportedSceneIdForSmokeTest() const { return LastImportedSceneId; }
 	FString GetSelectedLibrarySceneIdForSmokeTest() const { return SelectedLibrarySceneId; }
 	bool ImportAssetForSmokeTest(const FString& SourcePath, const FString& Kind);
+	bool StartAssetImportForSmokeTest(
+		const FString& SourcePath, const FString& Kind,
+		const FString& DestinationPath = FString());
+	bool CancelAssetImportForSmokeTest();
+	void PollAssetImportForSmokeTest();
+	float GetImportProgressForSmokeTest() const { return PendingImportProgress; }
+	FString GetImportStageForSmokeTest() const { return PendingImportStage; }
+	FString GetImportJobIdForSmokeTest() const { return PendingImportJobId; }
+	FString GetLastImportOutcomeForSmokeTest() const { return LastImportOutcome; }
+	float GetLastImportProgressForSmokeTest() const { return LastImportProgress; }
+	const TArray<FString>& GetLastImportedAssetPathsForSmokeTest() const
+	{
+		return LastImportedAssetPaths;
+	}
+	TArray<FString> GetAssetPathsForSmokeTest() const;
 	bool PlaceFirstAssetForSmokeTest(const FString& Type);
 	bool HideFirstAssetForSmokeTest(const FString& Type);
 	bool RestoreHiddenAssetsForSmokeTest();
@@ -180,6 +195,14 @@ private:
 		const FString& SourcePath, FString& OutSceneId, FString& OutError,
 		bool bAssignNewId = false);
 	void ImportAssetIntoLibrary(const FString& Kind);
+	bool StartAssetImport(
+		const FString& SourcePath, const FString& Kind,
+		const FString& DestinationPath = FString());
+	void PollAssetImport();
+	void FinishAssetImport(const FString& State, const TSharedPtr<FJsonObject>& Job);
+	void CancelAssetImport();
+	void RefreshImportStatus();
+	static FEpicodeCommandResult MakeImportResult(const TSharedPtr<FJsonObject>& Job);
 	bool SaveImportedAssets(const FEpicodeCommandResult& Result, FString& OutError);
 	void RemoveImportedSceneEntities(const FEpicodeCommandResult& Result, bool bSceneWasClean);
 	bool PlaceAsset(const FString& AssetPath, const FString& Type);
@@ -220,6 +243,7 @@ private:
 	TSharedPtr<STextBlock> InspectorTypeText;
 	TSharedPtr<SVerticalBox> SceneListBox;
 	TSharedPtr<SVerticalBox> AssetListBox;
+	TSharedPtr<SVerticalBox> ImportStatusBox;
 	TSharedPtr<SEditableTextBox> AssetSearchBox;
 	TSharedPtr<SEditableTextBox> AssetTagFilterBox;
 	TSharedPtr<SEditableTextBox> SceneSearchBox;
@@ -247,6 +271,14 @@ private:
 	FString SceneTagFilter;
 	FString LastImportedSceneId;
 	FString SelectedLibrarySceneId;
+	FString PendingImportJobId;
+	FString PendingImportStage;
+	FString PendingImportSource;
+	float PendingImportProgress = 0.0f;
+	bool bPendingImportSceneWasClean = false;
+	FString LastImportOutcome;
+	float LastImportProgress = 0.0f;
+	TArray<FString> LastImportedAssetPaths;
 	FString LastSignature;
 	FString LastAssetSignature;
 	FString LastInspectorSignature;

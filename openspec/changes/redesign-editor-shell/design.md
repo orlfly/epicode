@@ -378,7 +378,7 @@ SidecarIdleSeconds=300
 
 ## 聚焦工作台实施结果
 
-2026-11-16 已完成 2.1–2.9（含 2.3 场景文件导入和 2.4 角色/物品本地库）、3.1–3.7 以及 4.1–4.5（本地库索引、扫描、面板与场景导入）；CLI smoke 和正式 automation 测试均已覆盖。实现仍坚持“界面级隐藏、复用命令注册表、保留 `--legacy`”的约束。
+2026-11-16 已完成 2.1–2.9（含 2.3 场景文件导入和 2.4 角色/物品本地库）、3.1–3.7 以及 4.1–4.6（本地库索引、扫描、面板、场景导入和资产导入进度/取消/清理）；CLI smoke 和正式 automation 测试均已覆盖。实现仍坚持“界面级隐藏、复用命令注册表、保留 `--legacy`”的约束。
 
 ### 布局与面板
 
@@ -400,8 +400,9 @@ SidecarIdleSeconds=300
 ### 场景文件导入与本地库资产
 
 - 场景菜单“从文件导入场景...”用 `IDesktopPlatform::OpenFileDialog` 选择 `*.json`，先经 `FEpicodeSceneLibrary::Load` 完成 schema/实体/运行时引用校验并补全空 `sceneId`/`name`，再写入场景库；重复 `sceneId` 用“是=覆盖 / 否=另存副本 / 取消=不导入”三选一，副本生成新 GUID 并追加“（副本）”名称，导入后在场景库高亮选中、标记最近场景并询问是否打开。
-- 角色/物品菜单“导入角色/物品到本地库...”用文件对话框选择 FBX/GLTF/GLB 或 FBX/OBJ/GLTF/GLB，调用 `import.file`（`autoPlace=false`）；导入后用 `UPackage::SavePackage` 把 Interchange 生成的所有资产包写入 `Content/Epicode/Imported/{character,prop}/`，避免只存在于内存、重启后库为空。
-- Interchange 同步导入即使 `autoPlace=false` 仍会为当前场景创建实体；导入完成后立即用返回的 `entityIds` 调用 `entity.delete` 清理这些实体，若导入前场景是干净的再 `scene.save` 恢复干净标记，保证“导入到库”不会意外改场景。
+- 角色/物品菜单“导入角色/物品到本地库...”用文件对话框选择 FBX/GLTF/GLB 或 FBX/OBJ/GLTF/GLB，提交 `import.submit`（`autoPlace=false`）生成后台任务；左栏资源库标题下方显示导入卡，包含文件名、阶段（排队中/导入中/完成/失败/已取消）、百分比、进度条和“取消导入”按钮。
+- Shell 每 0.25 秒通过 `import.status` 轮询任务，不把导入状态混入命令消息；任务成功后用 `UPackage::SavePackage` 把 Interchange 生成的所有资产包写入 `Content/Epicode/Imported/{character,prop}/`，避免只存在于内存、重启后库为空。
+- 导入任务即使 `autoPlace=false` 仍会为当前场景创建实体；成功、失败或取消后统一用返回的 `entityIds` 调用 `entity.delete` 清理这些实体，若导入前场景是干净的再 `scene.save` 恢复干净标记，保证“导入到库”不会意外改场景。保存失败时同样回滚场景实体，并在状态栏和对话区显示错误。
 - 资源库通过 `FAssetRegistryModule` 递归扫描 `UEpicodeSettings::ImportContentRoot`（默认 `/Game/Epicode/Imported`），`USkeletalMesh` 标为角色、`UStaticMesh` 标为物品，按名称排序。列表项单击放置，菜单也可按类型展开资产子菜单。
 - “从本地库删除角色/物品”只把资产路径加入 `Saved/Epicode/Editor/asset-library.json` 的 `hidden` 数组并刷新列表；资产文件和引用它的场景实体保持不变；“本地库 > 恢复隐藏资源”清空该数组。
 
@@ -421,6 +422,13 @@ SidecarIdleSeconds=300
 - 左栏场景列表显示名称、短 sceneId、实体数和修改时间，tooltip 显示完整 sceneId、levelPath、实体数、修改时间和可用状态；资源库对缺失资产显示“缺失”，禁用放置，但仍可从删除菜单移除索引。
 - 资源库和场景库各有搜索框与标签过滤框；资源库提供全部/角色/物品分类，两个库的标题行都有刷新按钮，每条资产/场景都有“定位”按钮在文件管理器中打开目录。过滤结果为空时显示“没有匹配…”提示，不可用条目保留在列表中并标记。
 
+### 资产导入进度与取消（4.6）
+
+- `SEpicodeFocusedShell::StartAssetImport` 记录导入前的场景干净状态，提交 `import.submit` 后把 `jobId`、源文件、类型、阶段和进度保存在 Shell；`RefreshUi` 每 0.25 秒调用 `PollAssetImport`，通过新增的 `FEpicodeFocusedShellModel::QueryCommand` 静默查询 `import.status`，避免状态轮询产生命令消息。
+- 导入卡由 `SProgressBar` 和取消按钮构成，阶段文本映射 `queued`/`importing`/`done`/`failed`/`cancelled`；同一时间只允许一个待处理任务，重复提交会提示先完成或取消。
+- `FinishAssetImport` 统一处理三种终态：成功时保存资产包、删除临时实体、刷新资源库并写入对话；失败时显示 `errorMessage` 并删除临时实体；取消时清空任务并删除临时实体。若导入前场景干净，成功后再次 `scene.save`，失败/取消也尽量恢复干净状态。
+- 取消通过 `import.cancel` 请求服务取消；由于 Interchange 调用发生在服务 Tick 内，取消对尚未开始的排队任务立即生效，对已经进入同步导入的任务只能在本次调用结束后清理。进度阶段因此是粗粒度的 `queued(0%) -> importing(10%) -> done(100%)`。
+
 ### 快捷键与拦截
 
 - 通过 `SLevelViewport::GetCommandList()` 的子命令列表覆盖通用命令：`Q/W/E/R`（`FEditorViewportCommands`）、`F`（`FocusViewportToSelection`）、`Delete`（`FGenericCommands`）、`Ctrl+Z`/`Ctrl+Shift+Z`/`Ctrl+Y`（Undo/Redo）、`Ctrl+S`（`FLevelEditorCommands::Save`）。
@@ -435,7 +443,7 @@ SidecarIdleSeconds=300
 
 ### 验证证据
 
-- 构建：`engine/Scripts/Build.sh`，`Result: Succeeded`；插件二进制 sha256 `c69c5ee28399e4f783d402bda03668561e2e323647f0113cc3e2988862235fd8`，大小 1114944 bytes。
+- 构建：`engine/Scripts/Build.sh`，`Result: Succeeded`；插件二进制 sha256 `868b7d0538239b7e831ff0e088156faadf37483c5f855e5153b013a398a94577`，大小 1152744 bytes。
 - 工作台截图（4.4 面板验收）：`Saved/Screenshots/EditorShellWorkbench.png`（1600x900，sha256 `9f364ac2...fd4b22a`）、折叠布局 `EditorShellCollapsed.png`、菜单 `EditorShellMenu.png`、菜单 popup `EditorShellMenuPopup.png`（137x194）。
 - 菜单实际打开：日志 `FocusedEditor menu smoke: label=场景 open=true`；Slate 主窗口截图不含 popup，使用 `WriteActiveWindowScreenshot` 抓取 137x194 菜单窗口。
 - 场景文件导入：`-EpicodeFocusedEditorSceneImportSmoke=/tmp/epicode-import-test/scene.json` 日志 `FocusedEditor scene import smoke: success=true`，截图 `EditorShellSceneImport.png`（1600x900，`fb3fd5de...b4acd77e`）；场景库出现 `Imported Scene Test`。
@@ -443,8 +451,8 @@ SidecarIdleSeconds=300
 - 资产持久化：首次导入后 `Content/Epicode/Imported` 生成 16 个 `.uasset`（约 932K）；重启后 workbench smoke 资源库仍显示 `cube`（物品）和 `skeletal`（角色）共 2 项，截图即上面的工作台截图。
 - 检查器 smoke：`-EpicodeFocusedEditorInspectorSmoke` 覆盖物品属性（位置、可见性、物理）、灯光强度/衰减、摄像 FOV/活动相机、角色速度/暂停；日志 `prop ... snap=true grid=10.0 ...`、`camera ... active=true`、`character ... speed=true paused=true`、`undo ... restored=true`。截图 `EditorShellInspectorProp.png`（`e834edb5...e9650c7`）、`EditorShellInspectorLight.png`（`b1ece030...475eb2e7`）、`EditorShellInspectorCamera.png`（`1b9d9647...a3e6f918`）、`EditorShellInspectorCharacter.png`（`ee2cc137...504d9203`）。
 - 快捷键：W/E/R/Q/F 均 `handled=true`；Delete 后实体数 4 -> 3，Ctrl+Z 后 3 -> 4；Ctrl+S `handled=true`；无 `EnsureFailed`。
-- 自动化测试：`Scripts/Test.sh` 运行 `Epicode.*` 全部 168 项，`0` 失败；新增 `Epicode.EditorShell.Viewport` 验证真实 `SLevelViewport`、对象选择、W/E/R gizmo 模式、数值变换、Delete 后实体数 4 -> 3 和 Ctrl+Z 恢复 4；`Epicode.EditorShell.Scope` 验证 10 个聚焦菜单且环境/地形/植被/蓝图/动画蓝图/Sequencer/PIE/渲染队列/导航/物理约束/分组/材质图入口均不存在；`Epicode.EditorShell.Inspector` 验证四类实体属性、可见性、位置吸附、活动相机、角色速度/暂停和物品物理；`Epicode.EditorShell.LibraryPanel` 验证场景/资产搜索、标签过滤、类型过滤、空结果和手动刷新；`Epicode.EditorShell.SceneImport` 验证不支持 schema 拒绝、首次导入、副本新 ID、库内选中和场景库写入；`Epicode.Library.Index` 验证重建、JSON schema、Upsert/Load、缺失资产标记、损坏备份和恢复。
-- 本地库索引：`Saved/Epicode/Library/index.json` 当前 5 个场景条目，sha256 `bcb1639b...3efc87c`；场景列表的搜索、分类、刷新、定位和索引详情显示在工作台截图中。
+- 自动化测试：`Scripts/Test.sh` 运行 `Epicode.*` 全部 169 项，`0` 失败；新增 `Epicode.EditorShell.Viewport` 验证真实 `SLevelViewport`、对象选择、W/E/R gizmo 模式、数值变换、Delete 后实体数 4 -> 3 和 Ctrl+Z 恢复 4；`Epicode.EditorShell.Scope` 验证 10 个聚焦菜单且环境/地形/植被/蓝图/动画蓝图/Sequencer/PIE/渲染队列/导航/物理约束/分组/材质图入口均不存在；`Epicode.EditorShell.Inspector` 验证四类实体属性、可见性、位置吸附、活动相机、角色速度/暂停和物品物理；`Epicode.EditorShell.LibraryPanel` 验证场景/资产搜索、标签过滤、类型过滤、空结果和手动刷新；`Epicode.EditorShell.SceneImport` 验证不支持 schema 拒绝、首次导入、副本新 ID、库内选中和场景库写入；`Epicode.EditorShell.AssetImportAsync` 验证 `import.submit` 任务提交、`queued` 初始阶段、成功保存资产包并清理实体、取消不新增资产、失败清理实体且资源库计数不变；`Epicode.Library.Index` 验证重建、JSON schema、Upsert/Load、缺失资产标记、损坏备份和恢复。
+- 本地库索引：`Saved/Epicode/Library/index.json` 当前 5 个场景条目、0 个资产条目，2047 bytes，sha256 `36b30474401399488201108bf3fa820724de63f86d65dc60d89b2c88a290f36b`；场景列表的搜索、分类、刷新、定位和索引详情显示在工作台截图中。
 - 布局恢复：把 `layout.json` 改为左右折叠、宽度 0.30/0.15 后重启，日志 `layout loaded: left=false right=false leftWidth=0.300 rightWidth=0.150 recent=2 camera=true`；截图 `EditorShellLayoutLoad.png`（`d70d99c7...c25b53f7`）。
 - 视口重试：`-EpicodeFocusedEditorViewportRetrySmoke` 先注入创建失败，1 秒后重试；日志 `viewport retry smoke: ready=true`，截图 `EditorShellViewportRetry.png`（`4d17a5d2...3995e9c1`）。
 - 证据全文：`engine/Saved/Logs/editor-shell-workbench.log`。
@@ -453,10 +461,10 @@ SidecarIdleSeconds=300
 
 - 本地库删除只移除索引，不删除 `.uasset`；显式删除资产文件、当前/已保存场景引用检查留给任务 4.7。
 - 放置目前用视口中心前方 400cm；拖放到视口和鼠标交点放置留给任务 4.8。
-- 资产导入是同步调用，没有进度条、取消和失败清理；大文件会阻塞界面，留给任务 4.6。
+- 资产导入已使用 `import.submit` 任务和进度卡，但 Interchange 本体仍在服务 Tick 的游戏线程同步执行：进度阶段较粗，取消只对尚未开始的排队任务立即生效，大文件仍可能短暂阻塞界面；真正后台线程导入需要另立任务。
 - 场景文件导入已完成 schema 校验、覆盖/副本/取消和库内选中；导入大文件仍会阻塞界面。
 - 资源库暂无缩略图；标签目前只支持过滤，尚无编辑/批量管理入口。
-- 资产导入进度、取消、引用检查和拖放放置仍在 4.6–4.8。
+- 资产引用检查和拖放放置仍在 4.7–4.8。
 - 对话面板无后端，发送按钮禁用；任务 5.x 接入。
 - 视口重试已实现并做故障注入测试；真实驱动失败仍只能由用户手动点击重试。
 

@@ -1,12 +1,17 @@
 #include "Misc/AutomationTest.h"
 
+#include "AssetRegistry/IAssetRegistry.h"
+#include "AssetRegistry/AssetRegistryModule.h"
+#include "Containers/Ticker.h"
 #include "Editor.h"
 #include "EpicodeCommand.h"
 #include "EpicodeEngineSubsystem.h"
+#include "EpicodeLocalLibrary.h"
 #include "EpicodeSceneSubsystem.h"
 #include "HAL/FileManager.h"
 #include "LevelEditor.h"
 #include "Misc/FileHelper.h"
+#include "Misc/PackageName.h"
 #include "Misc/Paths.h"
 #include "Modules/ModuleManager.h"
 #include "SEpicodeFocusedShell.h"
@@ -512,6 +517,179 @@ bool FEpicodeEditorShellSceneImportTest::RunTest(const FString& Parameters)
 		{
 			IFileManager::Get().DeleteDirectory(*TrashPath, false, true);
 		}
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FEpicodeEditorShellAssetImportAsyncTest,
+	"Epicode.EditorShell.AssetImportAsync",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FEpicodeEditorShellAssetImportAsyncTest::RunTest(const FString& Parameters)
+{
+	FScopedEditorShellLayout LayoutGuard;
+	UEpicodeSceneSubsystem* Scene = GetTestScene();
+	if (!Scene || !StartTestScene(Scene, TEXT("Editor Shell Asset Import Test")))
+	{
+		AddError(TEXT("Failed to create the asset import test scene."));
+		return false;
+	}
+	const int32 InitialEntityCount = Scene->GetDocument().Entities.Num();
+
+	const FString FixturePath = FPaths::Combine(
+		FPaths::ProjectDir(), TEXT("Tests/Fixtures/cube.fbx"));
+	TestTrue(TEXT("asset import fixture exists"), IFileManager::Get().FileExists(*FixturePath));
+
+	const FString Root = FPaths::Combine(
+		FPaths::ProjectSavedDir(),
+		TEXT("Epicode/Tests/AssetImport"),
+		FGuid::NewGuid().ToString(EGuidFormats::Digits));
+	IFileManager::Get().MakeDirectory(*Root, true);
+	const FString SourcePath = FPaths::Combine(
+		Root, FString::Printf(TEXT("async_prop_%s.fbx"), *FGuid::NewGuid().ToString(EGuidFormats::Digits)));
+	TestTrue(TEXT("fixture copied"), IFileManager::Get().Copy(*SourcePath, *FixturePath) == COPY_OK);
+
+	auto TickImport = [](const TSharedRef<SEpicodeFocusedShell>& Shell)
+	{
+		for (int32 Attempt = 0; Attempt < 300 && !Shell->GetImportJobIdForSmokeTest().IsEmpty(); ++Attempt)
+		{
+			FTSTicker::GetCoreTicker().Tick(0.05f);
+			Shell->PollAssetImportForSmokeTest();
+			if (!Shell->GetImportJobIdForSmokeTest().IsEmpty())
+			{
+				FPlatformProcess::Sleep(0.01f);
+			}
+		}
+	};
+
+	FString ImportedAssetPath;
+	FString ImportedPackageDir;
+	{
+		TSharedRef<SEpicodeFocusedShell> Shell = SNew(SEpicodeFocusedShell);
+		const TArray<FString> Before = Shell->GetAssetPathsForSmokeTest();
+		const FString Destination = FString::Printf(
+			TEXT("/Game/Epicode/Tests/AssetImportAsync/%s"),
+			*FGuid::NewGuid().ToString(EGuidFormats::Digits));
+		TestTrue(TEXT("async import submitted"), Shell->StartAssetImportForSmokeTest(
+			SourcePath, TEXT("Prop"), Destination));
+		TestFalse(TEXT("async job id"), Shell->GetImportJobIdForSmokeTest().IsEmpty());
+		TestEqual(TEXT("initial stage"), Shell->GetImportStageForSmokeTest(), FString(TEXT("queued")));
+		TestTrue(TEXT("initial progress bounded"), Shell->GetImportProgressForSmokeTest() >= 0.0f
+			&& Shell->GetImportProgressForSmokeTest() <= 1.0f);
+
+		TickImport(Shell);
+		TestTrue(TEXT("async job finished"), Shell->GetImportJobIdForSmokeTest().IsEmpty());
+		TestTrue(TEXT("success outcome"), Shell->GetLastImportOutcomeForSmokeTest().Contains(TEXT("已导入")));
+		TestTrue(TEXT("success reports progress"), FMath::IsNearlyEqual(
+			Shell->GetLastImportProgressForSmokeTest(), 1.0f, 0.01f));
+
+		const TArray<FString>& ImportedAssets = Shell->GetLastImportedAssetPathsForSmokeTest();
+		TestTrue(TEXT("imported asset list"), ImportedAssets.Num() > 0);
+		if (ImportedAssets.Num() > 0)
+		{
+			ImportedAssetPath = ImportedAssets[0];
+		}
+		TestFalse(TEXT("imported asset path"), ImportedAssetPath.IsEmpty());
+		if (!ImportedAssetPath.IsEmpty())
+		{
+			const FString PackageName = FPackageName::ObjectPathToPackageName(ImportedAssetPath);
+			const FString PackageFile = FPackageName::LongPackageNameToFilename(
+				PackageName, FPackageName::GetAssetPackageExtension());
+			TestTrue(TEXT("imported package saved"), IFileManager::Get().FileExists(*PackageFile));
+			ImportedPackageDir = FPaths::GetPath(PackageFile);
+		}
+		TestEqual(TEXT("isolated destination leaves library unchanged"),
+			Shell->GetAssetPathsForSmokeTest().Num(), Before.Num());
+
+		TestEqual(TEXT("scene entities cleaned after import"),
+			Scene->GetDocument().Entities.Num(), InitialEntityCount);
+		Shell->RefreshLibraryForSmokeTest();
+	}
+	if (!ImportedAssetPath.IsEmpty())
+	{
+		if (UObject* ImportedObject = LoadObject<UObject>(nullptr, *ImportedAssetPath))
+		{
+			FAssetRegistryModule& AssetRegistryModule =
+				FModuleManager::LoadModuleChecked<FAssetRegistryModule>(TEXT("AssetRegistry"));
+			AssetRegistryModule.Get().AssetDeleted(ImportedObject);
+		}
+	}
+	if (!ImportedPackageDir.IsEmpty())
+	{
+		IFileManager::Get().DeleteDirectory(
+			*FPaths::Combine(FPaths::ProjectContentDir(),
+				TEXT("Epicode/Tests/AssetImportAsync")),
+			false, true);
+	}
+	IFileManager::Get().DeleteDirectory(*Root, false, true);
+
+	const FString CancelRoot = FPaths::Combine(
+		FPaths::ProjectSavedDir(),
+		TEXT("Epicode/Tests/AssetImportCancel"),
+		FGuid::NewGuid().ToString(EGuidFormats::Digits));
+	IFileManager::Get().MakeDirectory(*CancelRoot, true);
+	const FString CancelSource = FPaths::Combine(CancelRoot, TEXT("cancel_prop.fbx"));
+	TestTrue(TEXT("cancel fixture copied"),
+		IFileManager::Get().Copy(*CancelSource, *FixturePath) == COPY_OK);
+	{
+		TSharedRef<SEpicodeFocusedShell> Shell = SNew(SEpicodeFocusedShell);
+		const int32 BeforeCount = Shell->GetAssetCountForSmokeTest();
+		TestTrue(TEXT("cancel import submitted"),
+			Shell->StartAssetImportForSmokeTest(CancelSource, TEXT("Prop")));
+		TestTrue(TEXT("cancel requested"), Shell->CancelAssetImportForSmokeTest());
+		TickImport(Shell);
+		TestTrue(TEXT("cancel job cleared"), Shell->GetImportJobIdForSmokeTest().IsEmpty());
+		TestTrue(TEXT("cancel outcome"),
+			Shell->GetLastImportOutcomeForSmokeTest().Contains(TEXT("取消")));
+		TestEqual(TEXT("cancel keeps asset count"),
+			Shell->GetAssetCountForSmokeTest(), BeforeCount);
+	}
+	IFileManager::Get().DeleteDirectory(*CancelRoot, false, true);
+
+	const FString FailureRoot = FPaths::Combine(
+		FPaths::ProjectSavedDir(),
+		TEXT("Epicode/Tests/AssetImportFailure"),
+		FGuid::NewGuid().ToString(EGuidFormats::Digits));
+	IFileManager::Get().MakeDirectory(*FailureRoot, true);
+	const FString FailureSource = FPaths::Combine(FailureRoot, TEXT("broken_prop.fbx"));
+	FFileHelper::SaveStringToFile(TEXT("not a valid fbx"), *FailureSource);
+	{
+		TSharedRef<SEpicodeFocusedShell> Shell = SNew(SEpicodeFocusedShell);
+		const int32 BeforeCount = Shell->GetAssetCountForSmokeTest();
+		TestTrue(TEXT("failure import submitted"),
+			Shell->StartAssetImportForSmokeTest(FailureSource, TEXT("Prop")));
+		IFileManager::Get().Delete(*FailureSource, false, true, true);
+		TickImport(Shell);
+		TestTrue(TEXT("failure job cleared"), Shell->GetImportJobIdForSmokeTest().IsEmpty());
+		TestTrue(TEXT("failure outcome"),
+			Shell->GetLastImportOutcomeForSmokeTest().Contains(TEXT("失败")));
+		TestEqual(TEXT("failure keeps asset count"),
+			Shell->GetAssetCountForSmokeTest(), BeforeCount);
+		TestEqual(TEXT("failure leaves scene clean"),
+			Scene->GetDocument().Entities.Num(), InitialEntityCount);
+	}
+	IFileManager::Get().DeleteDirectory(*FailureRoot, false, true);
+
+	const FString TestSceneId = Scene->GetCurrentSceneId();
+	FString CloseError;
+	if (Scene->HasScene())
+	{
+		Scene->CloseScene(true, CloseError);
+	}
+	if (!TestSceneId.IsEmpty())
+	{
+		FString TrashPath;
+		FString DeleteError;
+		if (Scene->DeleteScene(TestSceneId, TrashPath, DeleteError))
+		{
+			IFileManager::Get().DeleteDirectory(*TrashPath, false, true);
+		}
+	}
+	{
+		FEpicodeLocalLibrary Library;
+		FString LibraryError;
+		Library.Refresh(LibraryError);
 	}
 	return true;
 }

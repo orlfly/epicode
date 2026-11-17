@@ -52,6 +52,7 @@
 #include "Widgets/Layout/SScrollBox.h"
 #include "Widgets/Layout/SSpacer.h"
 #include "Widgets/Layout/SSplitter.h"
+#include "Widgets/Notifications/SProgressBar.h"
 #include "Widgets/SBoxPanel.h"
 #include "Widgets/SOverlay.h"
 #include "Widgets/Text/STextBlock.h"
@@ -144,6 +145,7 @@ void SEpicodeFocusedShell::Construct(const FArguments& InArgs)
 	LastAssetSignature = Model.GetAssetSignature();
 	RefreshObjectList();
 	RefreshAssetList();
+	RefreshImportStatus();
 	RefreshSceneList();
 	LastInspectorSignature = FString::Printf(
 		TEXT("%s|%s|%d|%d"),
@@ -1984,6 +1986,11 @@ TSharedRef<SWidget> SEpicodeFocusedShell::BuildLeftPanel()
 						]
 				]
 			+ SVerticalBox::Slot()
+				.AutoHeight()
+				[
+					SAssignNew(ImportStatusBox, SVerticalBox)
+				]
+			+ SVerticalBox::Slot()
 				.FillHeight(0.25f)
 				[
 					SNew(SBorder)
@@ -2396,6 +2403,10 @@ TSharedRef<SWidget> SEpicodeFocusedShell::BuildStatusBar()
 
 void SEpicodeFocusedShell::RefreshUi()
 {
+	if (!PendingImportJobId.IsEmpty())
+	{
+		PollAssetImport();
+	}
 	Model.Refresh();
 	SyncSelectionFromViewport();
 
@@ -4233,37 +4244,341 @@ void SEpicodeFocusedShell::ImportAssetIntoLibrary(const FString& Kind)
 		return;
 	}
 
-	TSharedPtr<FJsonObject> Params = MakeShared<FJsonObject>();
-	Params->SetStringField(TEXT("filePath"), Files[0]);
-	Params->SetStringField(TEXT("kind"), bCharacter ? TEXT("character") : TEXT("prop"));
-	Params->SetBoolField(TEXT("autoPlace"), false);
-	const bool bSceneWasClean = Model.HasScene() && !Model.IsDirty();
-	const FEpicodeCommandResult Result = Model.Execute(TEXT("import.file"), Params);
-	if (!Result.bSuccess)
+	if (!StartAssetImport(Files[0], bCharacter ? TEXT("character") : TEXT("prop")))
 	{
 		FMessageDialog::Open(
 			EAppMsgType::Ok,
 			FText::FromString(Model.GetLastMessage()));
+	}
+}
+
+bool SEpicodeFocusedShell::StartAssetImport(
+	const FString& SourcePath, const FString& Kind, const FString& DestinationPath)
+{
+	if (!PendingImportJobId.IsEmpty())
+	{
+		Model.SetLastMessage(TEXT("已有导入任务在进行，请等待完成或先取消"));
+		RefreshStatus();
+		return false;
+	}
+
+	TSharedPtr<FJsonObject> Params = MakeShared<FJsonObject>();
+	Params->SetStringField(TEXT("filePath"), SourcePath);
+	Params->SetStringField(TEXT("kind"), Kind.ToLower());
+	Params->SetBoolField(TEXT("autoPlace"), false);
+	if (!DestinationPath.IsEmpty())
+	{
+		Params->SetStringField(TEXT("destinationPath"), DestinationPath);
+	}
+	bPendingImportSceneWasClean = Model.HasScene() && !Model.IsDirty();
+	const FEpicodeCommandResult Result = Model.Execute(TEXT("import.submit"), Params);
+	if (!Result.bSuccess || !Result.Result.IsValid())
+	{
+		bPendingImportSceneWasClean = false;
+		RefreshImportStatus();
+		RefreshStatus();
+		return false;
+	}
+
+	FString JobId;
+	if (!Result.Result->TryGetStringField(TEXT("jobId"), JobId) || JobId.IsEmpty())
+	{
+		Model.SetLastMessage(TEXT("导入任务已提交，但响应缺少 jobId"));
+		bPendingImportSceneWasClean = false;
+		RefreshImportStatus();
+		RefreshStatus();
+		return false;
+	}
+
+	PendingImportJobId = JobId;
+	PendingImportSource = SourcePath;
+	PendingImportStage = TEXT("queued");
+	PendingImportProgress = 0.0f;
+	LastImportOutcome.Reset();
+	LastImportProgress = 0.0f;
+	LastImportedAssetPaths.Reset();
+	Model.SetLastMessage(FString::Printf(TEXT("导入任务已提交：%s"), *JobId));
+	RefreshImportStatus();
+	RefreshStatus();
+	AddChatLine(TEXT("系统"), FString::Printf(
+		TEXT("开始导入%s：%s"), Kind.Equals(TEXT("character"), ESearchCase::IgnoreCase)
+			? TEXT("角色") : TEXT("物品"), *FPaths::GetCleanFilename(SourcePath)));
+	return true;
+}
+
+void SEpicodeFocusedShell::PollAssetImport()
+{
+	if (PendingImportJobId.IsEmpty())
+	{
 		return;
 	}
 
-	FString SaveError;
-	if (!SaveImportedAssets(Result, SaveError))
+	TSharedPtr<FJsonObject> Params = MakeShared<FJsonObject>();
+	Params->SetStringField(TEXT("jobId"), PendingImportJobId);
+	const FEpicodeCommandResult Result = Model.QueryCommand(TEXT("import.status"), Params);
+	if (!Result.bSuccess || !Result.Result.IsValid())
 	{
-		FMessageDialog::Open(
-			EAppMsgType::Ok,
-			FText::FromString(FString::Printf(TEXT("资产已导入内存但保存失败：%s"), *SaveError)));
-		Model.SetLastMessage(SaveError);
+		Model.SetLastMessage(FString::Printf(
+			TEXT("无法查询导入任务：%s"),
+			Result.ErrorMessage.IsEmpty() ? *Result.ErrorCode : *Result.ErrorMessage));
+		PendingImportJobId.Reset();
+		PendingImportSource.Reset();
+		PendingImportStage.Reset();
+		PendingImportProgress = 0.0f;
+		bPendingImportSceneWasClean = false;
+		RefreshImportStatus();
 		RefreshStatus();
 		return;
 	}
-	RemoveImportedSceneEntities(Result, bSceneWasClean);
-	Model.RefreshAssets();
+
+	FString State;
+	FString Stage;
+	double Progress = 0.0;
+	Result.Result->TryGetStringField(TEXT("state"), State);
+	Result.Result->TryGetStringField(TEXT("stage"), Stage);
+	Result.Result->TryGetNumberField(TEXT("progress"), Progress);
+	PendingImportStage = Stage;
+	PendingImportProgress = static_cast<float>(FMath::Clamp(Progress, 0.0, 1.0));
+
+	if (State == TEXT("succeeded") || State == TEXT("failed") || State == TEXT("cancelled"))
+	{
+		FinishAssetImport(State, Result.Result);
+		return;
+	}
+
+	RefreshImportStatus();
+}
+
+FEpicodeCommandResult SEpicodeFocusedShell::MakeImportResult(
+	const TSharedPtr<FJsonObject>& Job)
+{
+	FEpicodeCommandResult Result;
+	if (Job.IsValid())
+	{
+		const TSharedPtr<FJsonObject>* Payload = nullptr;
+		if (Job->TryGetObjectField(TEXT("result"), Payload) && Payload && Payload->IsValid())
+		{
+			Result.Result = *Payload;
+		}
+	}
+	return Result;
+}
+
+void SEpicodeFocusedShell::FinishAssetImport(
+	const FString& State, const TSharedPtr<FJsonObject>& Job)
+{
+	const FEpicodeCommandResult ImportResult = MakeImportResult(Job);
+	const FString FileName = FPaths::GetCleanFilename(PendingImportSource);
+	FString Outcome;
+
+	if (State == TEXT("succeeded"))
+	{
+		if (ImportResult.Result.IsValid())
+		{
+			const TArray<TSharedPtr<FJsonValue>>* Assets = nullptr;
+			if (ImportResult.Result->TryGetArrayField(TEXT("assets"), Assets) && Assets)
+			{
+				for (const TSharedPtr<FJsonValue>& Value : *Assets)
+				{
+					if (Value.IsValid() && Value->Type == EJson::String)
+					{
+						LastImportedAssetPaths.AddUnique(Value->AsString());
+					}
+				}
+			}
+		}
+		FString SaveError;
+		if (SaveImportedAssets(ImportResult, SaveError))
+		{
+			RemoveImportedSceneEntities(ImportResult, bPendingImportSceneWasClean);
+			Model.RefreshAssets();
+			Outcome = FString::Printf(TEXT("已导入资产：%s"), *FileName);
+		}
+		else
+		{
+			RemoveImportedSceneEntities(ImportResult, bPendingImportSceneWasClean);
+			Model.RefreshAssets();
+			Model.SetLastMessage(FString::Printf(TEXT("资产已导入内存但保存失败：%s"), *SaveError));
+			Outcome = FString::Printf(TEXT("导入保存失败：%s"), *FileName);
+		}
+	}
+	else
+	{
+		RemoveImportedSceneEntities(ImportResult, bPendingImportSceneWasClean);
+		if (State == TEXT("cancelled"))
+		{
+			if (bPendingImportSceneWasClean)
+			{
+				Model.Execute(TEXT("scene.save"));
+			}
+			Outcome = FString::Printf(TEXT("已取消导入：%s"), *FileName);
+		}
+		else
+		{
+			FString ErrorMessage;
+			if (Job.IsValid())
+			{
+				const TSharedPtr<FJsonObject>* Payload = nullptr;
+				if (Job->TryGetObjectField(TEXT("result"), Payload) && Payload && Payload->IsValid())
+				{
+					(*Payload)->TryGetStringField(TEXT("errorMessage"), ErrorMessage);
+				}
+			}
+			if (ErrorMessage.IsEmpty())
+			{
+				ErrorMessage = TEXT("未知错误");
+			}
+			Model.SetLastMessage(FString::Printf(TEXT("资产导入失败：%s"), *ErrorMessage));
+			Outcome = FString::Printf(TEXT("导入失败：%s（%s）"), *FileName, *ErrorMessage);
+		}
+	}
+
+	PendingImportJobId.Reset();
+	PendingImportSource.Reset();
+	PendingImportStage.Reset();
+	LastImportProgress = PendingImportProgress;
+	PendingImportProgress = 0.0f;
+	bPendingImportSceneWasClean = false;
+	LastImportOutcome = Outcome;
 	LastAssetSignature = Model.GetAssetSignature();
 	RefreshAssetList();
+	RefreshImportStatus();
 	RefreshStatus();
-	AddChatLine(TEXT("系统"), FString::Printf(
-		TEXT("已导入%s资产：%s"), bCharacter ? TEXT("角色") : TEXT("物品"), *Files[0]));
+	AddChatLine(TEXT("系统"), Outcome);
+}
+
+void SEpicodeFocusedShell::CancelAssetImport()
+{
+	if (PendingImportJobId.IsEmpty())
+	{
+		return;
+	}
+	TSharedPtr<FJsonObject> Params = MakeShared<FJsonObject>();
+	Params->SetStringField(TEXT("jobId"), PendingImportJobId);
+	const FEpicodeCommandResult Result = Model.Execute(TEXT("import.cancel"), Params);
+	if (!Result.bSuccess)
+	{
+		Model.SetLastMessage(FString::Printf(
+			TEXT("取消失败：%s"),
+			Result.ErrorMessage.IsEmpty() ? *Result.ErrorCode : *Result.ErrorMessage));
+		RefreshStatus();
+		return;
+	}
+	PendingImportStage = TEXT("cancelled");
+	RefreshImportStatus();
+	RefreshStatus();
+	AddChatLine(TEXT("系统"), TEXT("已请求取消导入，正在清理临时实体"));
+}
+
+void SEpicodeFocusedShell::RefreshImportStatus()
+{
+	if (!ImportStatusBox.IsValid())
+	{
+		return;
+	}
+	ImportStatusBox->ClearChildren();
+	if (PendingImportJobId.IsEmpty())
+	{
+		return;
+	}
+
+	FString StageLabel = PendingImportStage;
+	if (PendingImportStage == TEXT("queued"))
+	{
+		StageLabel = TEXT("排队中");
+	}
+	else if (PendingImportStage == TEXT("importing"))
+	{
+		StageLabel = TEXT("导入中");
+	}
+	else if (PendingImportStage == TEXT("done"))
+	{
+		StageLabel = TEXT("完成");
+	}
+	else if (PendingImportStage == TEXT("failed"))
+	{
+		StageLabel = TEXT("失败");
+	}
+	else if (PendingImportStage == TEXT("cancelled"))
+	{
+		StageLabel = TEXT("已取消");
+	}
+
+	ImportStatusBox->AddSlot()
+		.AutoHeight()
+		.Padding(FMargin(6.0f, 4.0f))
+		[
+			SNew(SBorder)
+			.BorderImage(FAppStyle::GetBrush(TEXT("Brushes.Panel")))
+			.Padding(FMargin(6.0f, 4.0f))
+			[
+				SNew(SVerticalBox)
+				+ SVerticalBox::Slot()
+					.AutoHeight()
+					[
+						SNew(STextBlock)
+						.Text(FText::FromString(FString::Printf(
+							TEXT("导入 %s · %s · %d%%"),
+							*FPaths::GetCleanFilename(PendingImportSource),
+							*StageLabel,
+							FMath::RoundToInt(PendingImportProgress * 100.0f))))
+						.Font(FAppStyle::GetFontStyle(TEXT("SmallFont")))
+						.ColorAndOpacity(FSlateColor(FLinearColor(0.78f, 0.83f, 0.9f)))
+					]
+				+ SVerticalBox::Slot()
+					.AutoHeight()
+					.Padding(FMargin(0.0f, 3.0f))
+					[
+						SNew(SProgressBar)
+						.Percent(PendingImportProgress)
+						.FillColorAndOpacity(FLinearColor(0.24f, 0.64f, 0.92f))
+					]
+				+ SVerticalBox::Slot()
+					.AutoHeight()
+					.HAlign(HAlign_Right)
+					[
+						SNew(SButton)
+						.ContentPadding(FMargin(8.0f, 2.0f))
+						.Text(FText::FromString(TEXT("取消导入")))
+						.OnClicked_Lambda([this]()
+						{
+							CancelAssetImport();
+							return FReply::Handled();
+						})
+					]
+			]
+		];
+}
+
+bool SEpicodeFocusedShell::StartAssetImportForSmokeTest(
+	const FString& SourcePath, const FString& Kind, const FString& DestinationPath)
+{
+	return StartAssetImport(SourcePath, Kind, DestinationPath);
+}
+
+bool SEpicodeFocusedShell::CancelAssetImportForSmokeTest()
+{
+	if (PendingImportJobId.IsEmpty())
+	{
+		return false;
+	}
+	CancelAssetImport();
+	return PendingImportJobId.IsEmpty() || PendingImportStage == TEXT("cancelled");
+}
+
+void SEpicodeFocusedShell::PollAssetImportForSmokeTest()
+{
+	PollAssetImport();
+}
+
+TArray<FString> SEpicodeFocusedShell::GetAssetPathsForSmokeTest() const
+{
+	TArray<FString> Paths;
+	for (const FEpicodeFocusedAssetRow& Row : Model.GetAssets())
+	{
+		Paths.Add(Row.AssetPath);
+	}
+	return Paths;
 }
 
 bool SEpicodeFocusedShell::ImportAssetForSmokeTest(
