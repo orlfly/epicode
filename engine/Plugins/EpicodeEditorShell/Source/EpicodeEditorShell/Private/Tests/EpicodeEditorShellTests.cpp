@@ -761,12 +761,13 @@ bool FEpicodeEditorShellAssetDeleteTest::RunTest(const FString& Parameters)
 			PackageFile, FPackageName::GetAssetPackageExtension()));
 	TestTrue(TEXT("asset package exists"), IFileManager::Get().FileExists(*PackageFile));
 
-	TSharedPtr<FJsonObject> PropParams = MakePropParams(TEXT("Referenced Prop"));
-	PropParams->SetStringField(TEXT("staticMesh"), MeshAssetPath);
-	const FEpicodeCommandResult SpawnResult =
-		ExecuteTestCommand(Engine, TEXT("prop.spawn"), PropParams);
-	TestTrue(TEXT("referencing prop spawned"), SpawnResult.bSuccess);
-	TestFalse(TEXT("spawn returned entity id"), SpawnResult.AffectedIds.IsEmpty());
+	const FVector DropLocation(320.0, -180.0, 0.0);
+	TestTrue(TEXT("asset placed at drop location"),
+		Shell->PlaceAssetAtForSmokeTest(MeshAssetPath, TEXT("Prop"), DropLocation));
+	TestTrue(TEXT("drop placement keeps selection"),
+		Shell->GetSelectedLocationForSmokeTest().Equals(DropLocation, 1.0));
+	const FString EntityId = Shell->GetSelectedEntityIdForSmokeTest();
+	TestFalse(TEXT("drop placement selected entity"), EntityId.IsEmpty());
 
 	FString DeleteError;
 	TestFalse(TEXT("referenced asset deletion blocked"),
@@ -774,10 +775,10 @@ bool FEpicodeEditorShellAssetDeleteTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("blocked deletion reports reference"), DeleteError.Contains(TEXT("引用")));
 	TestTrue(TEXT("blocked deletion keeps file"), IFileManager::Get().FileExists(*PackageFile));
 
-	if (!SpawnResult.AffectedIds.IsEmpty())
+	if (!EntityId.IsEmpty())
 	{
 		TSharedPtr<FJsonObject> DeleteParams = MakeShared<FJsonObject>();
-		DeleteParams->SetStringField(TEXT("id"), SpawnResult.AffectedIds[0]);
+		DeleteParams->SetStringField(TEXT("id"), EntityId);
 		TestTrue(TEXT("referencing prop deleted"),
 			ExecuteTestCommand(Engine, TEXT("entity.delete"), DeleteParams).bSuccess);
 	}

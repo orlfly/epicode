@@ -378,7 +378,7 @@ SidecarIdleSeconds=300
 
 ## 聚焦工作台实施结果
 
-2026-11-16 已完成 2.1–2.9（含 2.3 场景文件导入和 2.4 角色/物品本地库）、3.1–3.7 以及 4.1–4.7（本地库索引、扫描、面板、场景导入、资产导入和带引用检查的库删除）；CLI smoke 和正式 automation 测试均已覆盖。实现仍坚持“界面级隐藏、复用命令注册表、保留 `--legacy`”的约束。
+2026-11-16 已完成 2.1–2.9（含 2.3 场景文件导入和 2.4 角色/物品本地库）、3.1–3.7 以及 4.1–4.8（本地库索引、扫描、面板、场景导入、资产导入、带引用检查的库删除和拖放放置）；CLI smoke 和正式 automation 测试均已覆盖。实现仍坚持“界面级隐藏、复用命令注册表、保留 `--legacy`”的约束。
 
 ### 布局与面板
 
@@ -436,6 +436,13 @@ SidecarIdleSeconds=300
 - 无引用时用 `ObjectTools::DeleteSingleObject` 删除资产对象，并确保 `.uasset` 文件被移除，再调用 `FEpicodeFocusedShellModel::RemoveAssetEntry` 删除索引条目、清理隐藏集合和刷新资源库；删除成功写入对话区。
 - 引用检查以包路径归一化后比较，避免 `Asset.Asset` 与包路径写法差异导致漏检。
 
+### 拖放放置（4.8）
+
+- 资源库行按钮通过 `SButton::OnSlateButtonDragDetected` 启动 `FEpicodeAssetDragDropOp`，拖拽装饰器显示资产短名；单击仍走原放置路径。
+- 视口及其失败页统一包在 `SDropTarget` 中，`OnAllowDrop` 只接受资产拖拽操作；`OnDropped` 读取拖拽携带的资产路径和类型，调用 `character.spawn`/`prop.spawn`。
+- 落点使用 `FLevelEditorViewportClient::GetCursorWorldLocationFromMousePos` 取得鼠标射线，与 `Z=0` 平面求交；交点过近、过远或射线平行地面时退回相机前方 400cm，避免放置到相机后方或无穷远。
+- `PlaceAsset` 接受可选落点覆盖，保持自动选中和切到移动模式；测试通过 `PlaceAssetAtForSmokeTest` 验证显式坐标落点。
+
 ### 快捷键与拦截
 
 - 通过 `SLevelViewport::GetCommandList()` 的子命令列表覆盖通用命令：`Q/W/E/R`（`FEditorViewportCommands`）、`F`（`FocusViewportToSelection`）、`Delete`（`FGenericCommands`）、`Ctrl+Z`/`Ctrl+Shift+Z`/`Ctrl+Y`（Undo/Redo）、`Ctrl+S`（`FLevelEditorCommands::Save`）。
@@ -450,7 +457,7 @@ SidecarIdleSeconds=300
 
 ### 验证证据
 
-- 构建：`engine/Scripts/Build.sh`，`Result: Succeeded`；插件二进制 sha256 `0e285c4473da8d87adcdd6247f3f044af89508fc13ca7033d71fdda9080747a0`，大小 1179912 bytes。
+- 构建：`engine/Scripts/Build.sh`，`Result: Succeeded`；插件二进制 sha256 `c3f5b9d932825251a46bd55f6e2e622ea58068890a72beb29a063191486cc1ee`，大小 1198872 bytes。
 - 工作台截图（4.4 面板验收）：`Saved/Screenshots/EditorShellWorkbench.png`（1600x900，sha256 `9f364ac2...fd4b22a`）、折叠布局 `EditorShellCollapsed.png`、菜单 `EditorShellMenu.png`、菜单 popup `EditorShellMenuPopup.png`（137x194）。
 - 菜单实际打开：日志 `FocusedEditor menu smoke: label=场景 open=true`；Slate 主窗口截图不含 popup，使用 `WriteActiveWindowScreenshot` 抓取 137x194 菜单窗口。
 - 场景文件导入：`-EpicodeFocusedEditorSceneImportSmoke=/tmp/epicode-import-test/scene.json` 日志 `FocusedEditor scene import smoke: success=true`，截图 `EditorShellSceneImport.png`（1600x900，`fb3fd5de...b4acd77e`）；场景库出现 `Imported Scene Test`。
@@ -459,7 +466,7 @@ SidecarIdleSeconds=300
 - 检查器 smoke：`-EpicodeFocusedEditorInspectorSmoke` 覆盖物品属性（位置、可见性、物理）、灯光强度/衰减、摄像 FOV/活动相机、角色速度/暂停；日志 `prop ... snap=true grid=10.0 ...`、`camera ... active=true`、`character ... speed=true paused=true`、`undo ... restored=true`。截图 `EditorShellInspectorProp.png`（`e834edb5...e9650c7`）、`EditorShellInspectorLight.png`（`b1ece030...475eb2e7`）、`EditorShellInspectorCamera.png`（`1b9d9647...a3e6f918`）、`EditorShellInspectorCharacter.png`（`ee2cc137...504d9203`）。
 - 快捷键：W/E/R/Q/F 均 `handled=true`；Delete 后实体数 4 -> 3，Ctrl+Z 后 3 -> 4；Ctrl+S `handled=true`；无 `EnsureFailed`。
 - 自动化测试：`Scripts/Test.sh` 运行 `Epicode.*` 全部 170 项，`0` 失败；新增 `Epicode.EditorShell.Viewport` 验证真实 `SLevelViewport`、对象选择、W/E/R gizmo 模式、数值变换、Delete 后实体数 4 -> 3 和 Ctrl+Z 恢复 4；`Epicode.EditorShell.Scope` 验证 10 个聚焦菜单且环境/地形/植被/蓝图/动画蓝图/Sequencer/PIE/渲染队列/导航/物理约束/分组/材质图入口均不存在；`Epicode.EditorShell.Inspector` 验证四类实体属性、可见性、位置吸附、活动相机、角色速度/暂停和物品物理；`Epicode.EditorShell.LibraryPanel` 验证场景/资产搜索、标签过滤、类型过滤、空结果和手动刷新；`Epicode.EditorShell.SceneImport` 验证不支持 schema 拒绝、首次导入、副本新 ID、库内选中和场景库写入；`Epicode.EditorShell.AssetImportAsync` 验证 `import.submit` 任务提交、`queued` 初始阶段、成功保存资产包并清理实体、取消不新增资产、失败清理实体且资源库计数不变；`Epicode.EditorShell.AssetDelete` 验证当前场景引用阻断、已保存场景引用阻断、引用解除后删除文件和索引；`Epicode.Library.Index` 验证重建、JSON schema、Upsert/Load、缺失资产标记、损坏备份和恢复。
-- 本地库索引：`Saved/Epicode/Library/index.json` 当前 5 个场景条目、0 个资产条目，2047 bytes，sha256 `c72008b429ddd12aa87c7d7eac30b712cfa431432045519fbe0fa254420583bc`；场景列表的搜索、分类、刷新、定位和索引详情显示在工作台截图中。
+- 本地库索引：`Saved/Epicode/Library/index.json` 当前 5 个场景条目、0 个资产条目，2047 bytes，sha256 `55e51b0f88016d4b5bb45d2aef5f17641e8c11c5d985a509f2e145485df714c2`；场景列表的搜索、分类、刷新、定位和索引详情显示在工作台截图中。
 - 布局恢复：把 `layout.json` 改为左右折叠、宽度 0.30/0.15 后重启，日志 `layout loaded: left=false right=false leftWidth=0.300 rightWidth=0.150 recent=2 camera=true`；截图 `EditorShellLayoutLoad.png`（`d70d99c7...c25b53f7`）。
 - 视口重试：`-EpicodeFocusedEditorViewportRetrySmoke` 先注入创建失败，1 秒后重试；日志 `viewport retry smoke: ready=true`，截图 `EditorShellViewportRetry.png`（`4d17a5d2...3995e9c1`）。
 - 证据全文：`engine/Saved/Logs/editor-shell-workbench.log`。
@@ -467,11 +474,9 @@ SidecarIdleSeconds=300
 ### 已知限制
 
 - 本地库默认删除仍只移除索引；“删除文件”会检查当前和已保存场景引用，但只检查网格字段，不检查材质槽等间接引用。
-- 放置目前用视口中心前方 400cm；拖放到视口和鼠标交点放置留给任务 4.8。
 - 资产导入已使用 `import.submit` 任务和进度卡，但 Interchange 本体仍在服务 Tick 的游戏线程同步执行：进度阶段较粗，取消只对尚未开始的排队任务立即生效，大文件仍可能短暂阻塞界面；真正后台线程导入需要另立任务。
 - 场景文件导入已完成 schema 校验、覆盖/副本/取消和库内选中；导入大文件仍会阻塞界面。
 - 资源库暂无缩略图；标签目前只支持过滤，尚无编辑/批量管理入口。
-- 拖放放置仍在 4.8。
 - 对话面板无后端，发送按钮禁用；任务 5.x 接入。
 - 视口重试已实现并做故障注入测试；真实驱动失败仍只能由用户手动点击重试。
 

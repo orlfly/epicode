@@ -20,6 +20,7 @@
 #include "HAL/PlatformTime.h"
 #include "GameFramework/PlayerStart.h"
 #include "GameFramework/WorldSettings.h"
+#include "Input/DragAndDrop.h"
 #include "ILevelEditor.h"
 #include "IDesktopPlatform.h"
 #include "LevelEditorActions.h"
@@ -32,6 +33,7 @@
 #include "Misc/Parse.h"
 #include "ObjectTools.h"
 #include "SEpicodeFocusedLevelViewport.h"
+#include "SDropTarget.h"
 #include "Selection.h"
 #include "EditorViewportCommands.h"
 #include "Serialization/JsonReader.h"
@@ -44,6 +46,7 @@
 #include "UObject/SavePackage.h"
 #include "Widgets/Input/SButton.h"
 #include "Widgets/Input/SCheckBox.h"
+#include "Widgets/Layout/SBorder.h"
 #include "Widgets/Input/SComboButton.h"
 #include "Widgets/Input/SEditableTextBox.h"
 #include "Widgets/Input/SMultiLineEditableTextBox.h"
@@ -101,6 +104,38 @@ namespace
 		}
 		return false;
 	}
+
+	class FEpicodeAssetDragDropOp : public FDragDropOperation
+	{
+	public:
+		DRAG_DROP_OPERATOR_TYPE(FEpicodeAssetDragDropOp, FDragDropOperation)
+
+		FString AssetPath;
+		FString AssetType;
+
+		static TSharedRef<FEpicodeAssetDragDropOp> New(
+			const FString& InAssetPath, const FString& InAssetType)
+		{
+			TSharedRef<FEpicodeAssetDragDropOp> Operation =
+				MakeShared<FEpicodeAssetDragDropOp>();
+			Operation->AssetPath = InAssetPath;
+			Operation->AssetType = InAssetType;
+			Operation->Construct();
+			return Operation;
+		}
+
+		virtual TSharedPtr<SWidget> GetDefaultDecorator() const override
+		{
+			return SNew(SBorder)
+				.BorderImage(FAppStyle::GetBrush(TEXT("Brushes.Panel")))
+				.Padding(FMargin(6.0f, 3.0f))
+				[
+					SNew(STextBlock)
+					.Text(FText::FromString(FPaths::GetBaseFilename(AssetPath)))
+					.Font(FAppStyle::GetFontStyle(TEXT("SmallFont")))
+				];
+		}
+	};
 }
 
 void SEpicodeFocusedShell::Construct(const FArguments& InArgs)
@@ -1417,7 +1452,7 @@ void SEpicodeFocusedShell::RetryViewport()
 
 	if (ViewportHost.IsValid())
 	{
-		ViewportHost->SetContent(Viewport.ToSharedRef());
+		ViewportHost->SetContent(BuildViewportDropTarget(Viewport.ToSharedRef()));
 	}
 	ApplySavedCamera();
 	BindFocusedShortcuts();
@@ -1431,10 +1466,10 @@ TSharedRef<SWidget> SEpicodeFocusedShell::BuildViewportContent()
 {
 	if (Viewport.IsValid())
 	{
-		return Viewport.ToSharedRef();
+		return BuildViewportDropTarget(Viewport.ToSharedRef());
 	}
 
-	return SNew(SBorder)
+	return BuildViewportDropTarget(SNew(SBorder)
 		.BorderImage(FAppStyle::Get().GetBrush("Brushes.Panel"))
 		.Padding(FMargin(24.0f))
 		[
@@ -1478,7 +1513,67 @@ TSharedRef<SWidget> SEpicodeFocusedShell::BuildViewportContent()
 								.ColorAndOpacity(MutedTextColor())
 						]
 				]
+		]);
+}
+
+TSharedRef<SWidget> SEpicodeFocusedShell::BuildViewportDropTarget(
+	TSharedRef<SWidget> Content)
+{
+	return SNew(SDropTarget)
+		.OnAllowDrop_Lambda([](TSharedPtr<FDragDropOperation> Operation)
+		{
+			return Operation.IsValid()
+				&& Operation->IsOfType<FEpicodeAssetDragDropOp>();
+		})
+		.OnDropped_Lambda([this](const FGeometry&, const FDragDropEvent& DragDropEvent)
+		{
+			return HandleAssetDrop(DragDropEvent);
+		})
+		[
+			Content
 		];
+}
+
+FReply SEpicodeFocusedShell::HandleAssetDrop(const FDragDropEvent& DragDropEvent)
+{
+	const TSharedPtr<FDragDropOperation> Operation = DragDropEvent.GetOperation();
+	if (!Operation.IsValid() || !Operation->IsOfType<FEpicodeAssetDragDropOp>())
+	{
+		return FReply::Unhandled();
+	}
+	const TSharedPtr<FEpicodeAssetDragDropOp> AssetOperation =
+		StaticCastSharedPtr<FEpicodeAssetDragDropOp>(Operation);
+	if (!AssetOperation.IsValid())
+	{
+		return FReply::Unhandled();
+	}
+
+	FVector Location;
+	bool bHasLocation = false;
+	if (Viewport.IsValid())
+	{
+		FViewportCursorLocation Cursor =
+			Viewport->GetLevelViewportClient().GetCursorWorldLocationFromMousePos();
+		const FVector Origin = Cursor.GetOrigin();
+		const FVector Direction = Cursor.GetDirection();
+		double Distance = 400.0;
+		if (FMath::Abs(Direction.Z) > 1e-4)
+		{
+			const double PlaneDistance = -Origin.Z / Direction.Z;
+			if (PlaneDistance > 50.0 && PlaneDistance < 100000.0)
+			{
+				Distance = PlaneDistance;
+			}
+		}
+		Location = Origin + Direction * Distance;
+		bHasLocation = true;
+	}
+
+	PlaceAsset(
+		AssetOperation->AssetPath,
+		AssetOperation->AssetType,
+		bHasLocation ? &Location : nullptr);
+	return FReply::Handled();
 }
 
 TSharedRef<SWidget> SEpicodeFocusedShell::MakePanelHeader(
@@ -2799,6 +2894,13 @@ void SEpicodeFocusedShell::RefreshAssetList()
 								PlaceAsset(AssetPath, AssetType);
 								return FReply::Handled();
 							})
+							.OnSlateButtonDragDetected_Lambda(
+								[AssetPath = Row.AssetPath, AssetType = Row.Type](
+									const FGeometry&, const FPointerEvent&)
+								{
+									return FReply::Handled().BeginDragDrop(
+										FEpicodeAssetDragDropOp::New(AssetPath, AssetType));
+								})
 							[
 								SNew(STextBlock)
 									.Text(FText::FromString(FString::Printf(
@@ -4867,7 +4969,8 @@ bool SEpicodeFocusedShell::DeleteLibraryAssetForSmokeTest(
 	return TryDeleteLibraryAsset(AssetPath, AssetName, OutError);
 }
 
-bool SEpicodeFocusedShell::PlaceAsset(const FString& AssetPath, const FString& Type)
+bool SEpicodeFocusedShell::PlaceAsset(
+	const FString& AssetPath, const FString& Type, const FVector* OptionalLocation)
 {
 	if (!Model.HasScene())
 	{
@@ -4881,7 +4984,8 @@ bool SEpicodeFocusedShell::PlaceAsset(const FString& AssetPath, const FString& T
 		Type == TEXT("Character") ? TEXT("skeletalMesh") : TEXT("staticMesh"),
 		AssetPath);
 	Params->SetStringField(TEXT("name"), FPaths::GetBaseFilename(AssetPath));
-	Params->SetObjectField(TEXT("transform"), GetPlacementTransform().ToJson());
+	Params->SetObjectField(
+		TEXT("transform"), GetPlacementTransform(OptionalLocation).ToJson());
 
 	const FEpicodeCommandResult Result = Model.Execute(
 		Type == TEXT("Character") ? TEXT("character.spawn") : TEXT("prop.spawn"),
@@ -4924,6 +5028,31 @@ bool SEpicodeFocusedShell::PlaceFirstAssetForSmokeTest(const FString& Type)
 	return false;
 }
 
+bool SEpicodeFocusedShell::PlaceFirstAssetAtForSmokeTest(
+	const FString& Type, const FVector& Location)
+{
+	for (const FEpicodeFocusedAssetRow& Row : Model.GetAssets())
+	{
+		if (Row.Type == Type)
+		{
+			return PlaceAsset(Row.AssetPath, Row.Type, &Location);
+		}
+	}
+	return false;
+}
+
+bool SEpicodeFocusedShell::PlaceAssetAtForSmokeTest(
+	const FString& AssetPath, const FString& Type, const FVector& Location)
+{
+	return PlaceAsset(AssetPath, Type, &Location);
+}
+
+FString SEpicodeFocusedShell::GetSelectedEntityIdForSmokeTest() const
+{
+	const FGuid Id = Model.GetSelectedEntityId();
+	return Id.IsValid() ? Id.ToString(EGuidFormats::DigitsWithHyphens) : FString();
+}
+
 bool SEpicodeFocusedShell::HideFirstAssetForSmokeTest(const FString& Type)
 {
 	for (const FEpicodeFocusedAssetRow& Row : Model.GetAssets())
@@ -4949,15 +5078,22 @@ bool SEpicodeFocusedShell::RestoreHiddenAssetsForSmokeTest()
 	return true;
 }
 
-FEpicodeTransform SEpicodeFocusedShell::GetPlacementTransform() const
+FEpicodeTransform SEpicodeFocusedShell::GetPlacementTransform(
+	const FVector* OptionalLocation) const
 {
 	FEpicodeTransform Transform;
 	if (Viewport.IsValid())
 	{
 		const FLevelEditorViewportClient& Client = Viewport->GetLevelViewportClient();
 		const FRotator ViewRotation = Client.GetViewRotation();
-		Transform.Location = Client.GetViewLocation() + ViewRotation.Vector() * 400.0;
+		Transform.Location = OptionalLocation
+			? *OptionalLocation
+			: Client.GetViewLocation() + ViewRotation.Vector() * 400.0;
 		Transform.Rotation = FRotator(0.0, ViewRotation.Yaw, 0.0);
+	}
+	else if (OptionalLocation)
+	{
+		Transform.Location = *OptionalLocation;
 	}
 	return Transform;
 }

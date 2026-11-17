@@ -18,6 +18,8 @@ class SScrollBox;
 class STextBlock;
 class SVerticalBox;
 class SEpicodeFocusedLevelViewport;
+class FDragDropEvent;
+class SWidget;
 
 class SEpicodeFocusedShell : public SCompoundWidget
 {
@@ -63,6 +65,10 @@ public:
 	}
 	TArray<FString> GetAssetPathsForSmokeTest() const;
 	bool PlaceFirstAssetForSmokeTest(const FString& Type);
+	bool PlaceFirstAssetAtForSmokeTest(const FString& Type, const FVector& Location);
+	bool PlaceAssetAtForSmokeTest(
+		const FString& AssetPath, const FString& Type, const FVector& Location);
+	FString GetSelectedEntityIdForSmokeTest() const;
 	bool HideFirstAssetForSmokeTest(const FString& Type);
 	bool RestoreHiddenAssetsForSmokeTest();
 	bool DeleteLibraryAssetForSmokeTest(
@@ -211,8 +217,13 @@ private:
 		const FString& AssetPath, const FString& AssetName, FString& OutError);
 	void DeleteLibraryAssetWithDialog(const FString& AssetPath, const FString& AssetName);
 	void CollectAssetReferences(const FString& PackagePath, TArray<FString>& OutReferences) const;
-	bool PlaceAsset(const FString& AssetPath, const FString& Type);
-	FEpicodeTransform GetPlacementTransform() const;
+	bool PlaceAsset(
+		const FString& AssetPath, const FString& Type,
+		const FVector* OptionalLocation = nullptr);
+	FEpicodeTransform GetPlacementTransform(
+		const FVector* OptionalLocation = nullptr) const;
+	TSharedRef<SWidget> BuildViewportDropTarget(TSharedRef<SWidget> Content);
+	FReply HandleAssetDrop(const FDragDropEvent& DragDropEvent);
 	void DeleteSelectedEntity();
 	void DeleteSelectedEntityOfType(EEpicodeEntityType Type);
 	void CreateLight(const FString& LightType);

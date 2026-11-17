@@ -21,6 +21,7 @@ public class EpicodeEditorShell : ModuleRules
 			"LevelEditor",
 			"EditorFramework",
 			"EditorStyle",
+			"EditorWidgets",
 			"AppFramework",
 			"ToolMenus",
 			"Projects",

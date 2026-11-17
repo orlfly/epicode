@@ -39,7 +39,7 @@
 - [x] 4.5 实现场景导入：文件对话框、schema 校验、重复 sceneId 覆盖/另存/取消、写入场景库并选中；重复 ID 使用“是/否/取消”对话框，副本生成新 sceneId 和“（副本）”名称，导入后在场景库高亮选中；新增 `Epicode.EditorShell.SceneImport` 自动化测试
 - [x] 4.6 实现角色/物品导入：复用 Interchange/OBJ 流程、目标路径、骨骼/静态网格校验、进度、取消、失败清理；文件对话框通过 `import.submit` 异步任务提交，左栏显示文件名/阶段/百分比/进度条/取消按钮，成功后保存资产包并清理临时实体，失败或取消后清理实体并恢复干净场景；新增 `Epicode.EditorShell.AssetImportAsync` 自动化测试
 - [x] 4.7 实现库删除：场景走 `scene.delete` 回收站；角色/物品默认只删索引；显式删除资产时检查当前和已保存场景引用；库菜单区分“移除索引”和“删除文件”，引用检查命中时列出场景/实体并拒绝删除，删除成功后同步移除索引和 `.uasset`；新增 `Epicode.EditorShell.AssetDelete` 自动化测试
-- [ ] 4.8 实现放置：双击/拖放到视口，调用 `character.spawn`/`prop.spawn`，初始位置用视口中心或鼠标交点（2.4 已实现菜单和库列表单击放置、自动选中和移动模式；拖放与鼠标交点待补）
+- [x] 4.8 实现放置：双击/拖放到视口，调用 `character.spawn`/`prop.spawn`，初始位置用视口中心或鼠标交点；资源库行支持 `OnDragDetected` 启动资产拖拽操作，视口外层 `SDropTarget` 接收并在鼠标射线与地面交点放置，保留单击放置、自动选中和移动模式；`Epicode.EditorShell.AssetDelete` 增加显式落点放置断言
 - [ ] 4.9 实现路径安全：ImportRoots、`/Game/` 目标、目录穿越、符号链接逃逸、扩展名和大小限制
 - [ ] 4.10 实现冲突处理：SHA-1 复用、选项冲突覆盖/副本/取消、名称冲突重命名/取消
 - [ ] 4.11 编写 `Epicode.Library.Index`、`Import`、`Delete`、`Place`、`PathSafety` 自动化测试
