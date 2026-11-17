@@ -223,15 +223,25 @@ Unreal EpicodeAssistant
 定义 C++ 侧 `IConversationBackend`：
 
 ```cpp
+class IConversationStream
+{
+public:
+    virtual void Cancel() = 0;
+    virtual bool IsDone() const = 0;
+    virtual void Poll(TArray<FConversationEvent>& OutEvents) = 0;
+};
+
 class IConversationBackend
 {
 public:
     virtual ~IConversationBackend() = default;
-    virtual void Send(const FConversationRequest& Request, FOnConversationEvent OnEvent) = 0;
-    virtual void Cancel(const FString& RequestId) = 0;
+    virtual TSharedPtr<IConversationStream> Start(
+        const FConversationRequest& Request, FString& OutError) = 0;
     virtual bool IsAvailable(FString& OutError) const = 0;
 };
 ```
+
+实现采用可轮询流而不是回调：网络/HTTP 线程只把字节写入队列，UI 在 Tick 中调用 `Poll`，避免跨线程 Slate 更新。`FOpenAICompatibleChatBackend` 已按此接口实现 HTTP/SSE 降级。
 
 实现：
 
