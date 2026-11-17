@@ -6,6 +6,8 @@
 #include "EpicodeSceneSubsystem.h"
 #include "Framework/Docking/TabManager.h"
 #include "Misc/CoreDelegates.h"
+#include "Misc/CommandLine.h"
+#include "Misc/Parse.h"
 #include "Modules/ModuleManager.h"
 #include "SEpicodeStudioPanel.h"
 #include "SEpicodeMultiplayerPanel.h"
@@ -73,21 +75,30 @@ namespace
 
 void FEpicodeStudioModule::StartupModule()
 {
-	FGlobalTabmanager::Get()->RegisterNomadTabSpawner(
+	const bool bFocusedEditor = FParse::Param(
+		FCommandLine::Get(), TEXT("EpicodeFocusedEditor"));
+	if (bFocusedEditor)
+	{
+		UE_LOG(LogEpicodeStudio, Log,
+			TEXT("Focused editor mode: legacy Epicode tabs are not registered"));
+	}
+	else
+	{
+		FGlobalTabmanager::Get()->RegisterNomadTabSpawner(
 		TEXT("EpicodeStudio"),
 		FOnSpawnTab::CreateRaw(this, &FEpicodeStudioModule::SpawnStudioTab))
 		.SetDisplayName(FText::FromString(TEXT("Epicode Studio")))
 		.SetTooltipText(FText::FromString(TEXT("Scene, character, prop, light and environment managers.")))
 		.SetMenuType(ETabSpawnerMenuType::Enabled)
 		.SetIcon(FSlateIcon(FAppStyle::GetAppStyleSetName(), TEXT("LevelEditor.Tabs.Viewports")));
-	FGlobalTabmanager::Get()->RegisterNomadTabSpawner(
+		FGlobalTabmanager::Get()->RegisterNomadTabSpawner(
 		TEXT("EpicodeMultiplayer"),
 		FOnSpawnTab::CreateRaw(this, &FEpicodeStudioModule::SpawnMultiplayerTab))
 		.SetDisplayName(FText::FromString(TEXT("Epicode Multiplayer")))
 		.SetTooltipText(FText::FromString(TEXT("Session, players, performer HUD and director console.")))
 		.SetMenuType(ETabSpawnerMenuType::Enabled)
 		.SetIcon(FSlateIcon(FAppStyle::GetAppStyleSetName(), TEXT("LevelEditor.Tabs.Viewports")));
-	FGlobalTabmanager::Get()->RegisterNomadTabSpawner(
+		FGlobalTabmanager::Get()->RegisterNomadTabSpawner(
 		TEXT("EpicodeDirectorWorkspace"),
 		FOnSpawnTab::CreateRaw(this, &FEpicodeStudioModule::SpawnDirectorTab))
 		.SetDisplayName(FText::FromString(TEXT("Epicode Director Workspace")))
@@ -95,56 +106,61 @@ void FEpicodeStudioModule::StartupModule()
 		.SetMenuType(ETabSpawnerMenuType::Enabled)
 		.SetIcon(FSlateIcon(FAppStyle::GetAppStyleSetName(), TEXT("LevelEditor.Tabs.Viewports")));
 
-	if (UToolMenus* Menus = UToolMenus::Get())
+	}
+
+	if (!bFocusedEditor)
 	{
-		FToolMenuOwnerScoped OwnerScoped(this);
-		if (UToolMenu* WindowMenu = Menus->ExtendMenu(TEXT("LevelEditor.MainMenu.Window")))
+		if (UToolMenus* Menus = UToolMenus::Get())
 		{
-			FToolMenuSection& Section = WindowMenu->FindOrAddSection(TEXT("WindowLayout"));
-			Section.AddMenuEntry(
-				TEXT("EpicodeStudio"),
-				FText::FromString(TEXT("Epicode Studio")),
-				FText::FromString(TEXT("Open the Epicode production workspace.")),
-				FSlateIcon(FAppStyle::GetAppStyleSetName(), TEXT("LevelEditor.Tabs.Viewports")),
-				FUIAction(FExecuteAction::CreateLambda([]()
-				{
-					FGlobalTabmanager::Get()->TryInvokeTab(FTabId(TEXT("EpicodeStudio")));
-				})));
-			Section.AddMenuEntry(
-				TEXT("EpicodeDirectorWorkspace"),
-				FText::FromString(TEXT("Epicode Director Workspace")),
-				FText::FromString(TEXT("Open sandbox, director, timeline and replay controls.")),
-				FSlateIcon(FAppStyle::GetAppStyleSetName(), TEXT("LevelEditor.Tabs.Viewports")),
-				FUIAction(FExecuteAction::CreateLambda([]()
-				{
-					FGlobalTabmanager::Get()->TryInvokeTab(FTabId(TEXT("EpicodeDirectorWorkspace")));
-				})));
-		}
-		if (UToolMenu* ToolbarMenu = Menus->ExtendMenu(TEXT("LevelEditor.LevelEditorToolBar.User")))
-		{
-			FToolMenuSection& Section = ToolbarMenu->FindOrAddSection(TEXT("Epicode"));
-			Section.AddEntry(FToolMenuEntry::InitToolBarButton(
-				TEXT("EpicodeStudio"),
-				FUIAction(FExecuteAction::CreateLambda([]()
-				{
-					FGlobalTabmanager::Get()->TryInvokeTab(FTabId(TEXT("EpicodeStudio")));
-				})),
-				FText::FromString(TEXT("Epicode Studio")),
-				FText::FromString(TEXT("Open the Epicode production workspace.")),
-				FSlateIcon(FAppStyle::GetAppStyleSetName(), TEXT("LevelEditor.Tabs.Viewports"))));
-		}
-		if (UToolMenu* WindowMenu = Menus->ExtendMenu(TEXT("LevelEditor.MainMenu.Window")))
-		{
-			FToolMenuSection& Section = WindowMenu->FindOrAddSection(TEXT("WindowLayout"));
-			Section.AddMenuEntry(
-				TEXT("EpicodeMultiplayer"),
-				FText::FromString(TEXT("Epicode Multiplayer")),
-				FText::FromString(TEXT("Open the Epicode multiplayer panel.")),
-				FSlateIcon(FAppStyle::GetAppStyleSetName(), TEXT("LevelEditor.Tabs.Viewports")),
-				FUIAction(FExecuteAction::CreateLambda([]()
-				{
-					FGlobalTabmanager::Get()->TryInvokeTab(FTabId(TEXT("EpicodeMultiplayer")));
-				})));
+			FToolMenuOwnerScoped OwnerScoped(this);
+			if (UToolMenu* WindowMenu = Menus->ExtendMenu(TEXT("LevelEditor.MainMenu.Window")))
+			{
+				FToolMenuSection& Section = WindowMenu->FindOrAddSection(TEXT("WindowLayout"));
+				Section.AddMenuEntry(
+					TEXT("EpicodeStudio"),
+					FText::FromString(TEXT("Epicode Studio")),
+					FText::FromString(TEXT("Open the Epicode production workspace.")),
+					FSlateIcon(FAppStyle::GetAppStyleSetName(), TEXT("LevelEditor.Tabs.Viewports")),
+					FUIAction(FExecuteAction::CreateLambda([]()
+					{
+						FGlobalTabmanager::Get()->TryInvokeTab(FTabId(TEXT("EpicodeStudio")));
+					})));
+				Section.AddMenuEntry(
+					TEXT("EpicodeDirectorWorkspace"),
+					FText::FromString(TEXT("Epicode Director Workspace")),
+					FText::FromString(TEXT("Open sandbox, director, timeline and replay controls.")),
+					FSlateIcon(FAppStyle::GetAppStyleSetName(), TEXT("LevelEditor.Tabs.Viewports")),
+					FUIAction(FExecuteAction::CreateLambda([]()
+					{
+						FGlobalTabmanager::Get()->TryInvokeTab(FTabId(TEXT("EpicodeDirectorWorkspace")));
+					})));
+			}
+			if (UToolMenu* ToolbarMenu = Menus->ExtendMenu(TEXT("LevelEditor.LevelEditorToolBar.User")))
+			{
+				FToolMenuSection& Section = ToolbarMenu->FindOrAddSection(TEXT("Epicode"));
+				Section.AddEntry(FToolMenuEntry::InitToolBarButton(
+					TEXT("EpicodeStudio"),
+					FUIAction(FExecuteAction::CreateLambda([]()
+					{
+						FGlobalTabmanager::Get()->TryInvokeTab(FTabId(TEXT("EpicodeStudio")));
+					})),
+					FText::FromString(TEXT("Epicode Studio")),
+					FText::FromString(TEXT("Open the Epicode production workspace.")),
+					FSlateIcon(FAppStyle::GetAppStyleSetName(), TEXT("LevelEditor.Tabs.Viewports"))));
+			}
+			if (UToolMenu* WindowMenu = Menus->ExtendMenu(TEXT("LevelEditor.MainMenu.Window")))
+			{
+				FToolMenuSection& Section = WindowMenu->FindOrAddSection(TEXT("WindowLayout"));
+				Section.AddMenuEntry(
+					TEXT("EpicodeMultiplayer"),
+					FText::FromString(TEXT("Epicode Multiplayer")),
+					FText::FromString(TEXT("Open the Epicode multiplayer panel.")),
+					FSlateIcon(FAppStyle::GetAppStyleSetName(), TEXT("LevelEditor.Tabs.Viewports")),
+					FUIAction(FExecuteAction::CreateLambda([]()
+					{
+						FGlobalTabmanager::Get()->TryInvokeTab(FTabId(TEXT("EpicodeMultiplayer")));
+					})));
+			}
 		}
 	}
 	UE_LOG(LogEpicodeStudio, Log, TEXT("EpicodeStudio module started"));
@@ -168,10 +184,13 @@ void FEpicodeStudioModule::ShutdownModule()
 		PostUndoRedoHandle.Reset();
 	}
 	UnregisterTransactionSink();
-	UToolMenus::UnregisterOwner(this);
-	FGlobalTabmanager::Get()->UnregisterNomadTabSpawner(TEXT("EpicodeStudio"));
-	FGlobalTabmanager::Get()->UnregisterNomadTabSpawner(TEXT("EpicodeMultiplayer"));
-	FGlobalTabmanager::Get()->UnregisterNomadTabSpawner(TEXT("EpicodeDirectorWorkspace"));
+	if (!FParse::Param(FCommandLine::Get(), TEXT("EpicodeFocusedEditor")))
+	{
+		UToolMenus::UnregisterOwner(this);
+		FGlobalTabmanager::Get()->UnregisterNomadTabSpawner(TEXT("EpicodeStudio"));
+		FGlobalTabmanager::Get()->UnregisterNomadTabSpawner(TEXT("EpicodeMultiplayer"));
+		FGlobalTabmanager::Get()->UnregisterNomadTabSpawner(TEXT("EpicodeDirectorWorkspace"));
+	}
 	UE_LOG(LogEpicodeStudio, Log, TEXT("EpicodeStudio module stopped"));
 }
 

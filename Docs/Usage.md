@@ -62,7 +62,7 @@ cd engine
 ./Scripts/Editor.sh
 ```
 
-`Editor.sh` 默认启动聚焦工作台：顶部 Epicode 菜单、中间实时视口、左侧对象列表/本地库、右侧实体检查器和对话面板、底部状态栏；stock Unreal 主窗口、主标签、工具栏和 Content Browser 被隐藏。
+`Editor.sh` 默认启动聚焦工作台：顶部 Epicode 菜单、中间实时视口、左侧对象列表/本地库、右侧实体检查器和对话面板、底部状态栏；stock Unreal 主窗口、主标签、工具栏和 Content Browser 被隐藏。完整说明见 [聚焦工作台](EditorShell.md)。
 
 当前聚焦工作台已支持：
 
@@ -935,6 +935,7 @@ Viewer 使用 `Saved/Epicode/viewer-token` 或 `--token`，不占表演者槽位
 ## 13. 相关文档
 
 - [工程 README](../engine/README.md)
+- [聚焦工作台](EditorShell.md)
 - [Assistant 与编辑脚本](Assistant.md)
 - [Studio 面板](Studio.md)
 - [场景模型](SceneModel.md)

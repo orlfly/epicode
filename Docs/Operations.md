@@ -45,6 +45,8 @@ cd engine
 
 构建日志写入 `engine/Saved/Logs/build.log`。首次构建会编译八个插件：`EpicodeCore`、`EpicodeImport`、`EpicodeSandbox`、`EpicodeDirector`、`EpicodeControlAPI`、`EpicodeStudio`、`EpicodeRender`、`EpicodeNetwork`。
 
+Editor 目标还包含 `EpicodeEditorShell`（默认聚焦工作台）和 `EpicodeAssistant`（对话与编辑脚本）；`EpicodeStudio` 在默认模式只提供事务 sink，九页签 UI 仅在 `--legacy` 注册。
+
 当前安装的 Unreal Engine 发行版不支持独立 `Server` 构建目标，`TARGET=EpicodeVideoServer` 会返回 `Server targets are not currently supported from this engine distribution.`。多人服务器改用 `UnrealEditor-Cmd -server` 启动，详见 `Docs/Multiplayer.md`。
 
 ## 启动

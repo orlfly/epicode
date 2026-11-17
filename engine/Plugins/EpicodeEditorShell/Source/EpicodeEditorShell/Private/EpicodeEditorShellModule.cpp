@@ -4,6 +4,7 @@
 #include "EditorModeManager.h"
 #include "Containers/Ticker.h"
 #include "EpicodeCommand.h"
+#include "EpicodeAssistantTypes.h"
 #include "EpicodeEngineSubsystem.h"
 #include "EpicodeSceneSubsystem.h"
 #include "Framework/Application/SlateApplication.h"
@@ -182,6 +183,11 @@ void FEpicodeEditorShellModule::ShutdownModule()
 	{
 		FTSTicker::GetCoreTicker().RemoveTicker(InspectorSmokeHandle);
 		InspectorSmokeHandle.Reset();
+	}
+	if (ScriptSmokeHandle.IsValid())
+	{
+		FTSTicker::GetCoreTicker().RemoveTicker(ScriptSmokeHandle);
+		ScriptSmokeHandle.Reset();
 	}
 
 	if (ShellWidget.IsValid())
@@ -387,6 +393,14 @@ bool FEpicodeEditorShellModule::TryCreateShellWindow()
 		InspectorSmokeStep = 0;
 		InspectorSmokeHandle = FTSTicker::GetCoreTicker().AddTicker(
 			FTickerDelegate::CreateRaw(this, &FEpicodeEditorShellModule::HandleInspectorSmokeTick),
+			1.0f);
+	}
+	else if (FParse::Param(
+		FCommandLine::Get(), TEXT("EpicodeFocusedEditorScriptSmoke")))
+	{
+		ScriptSmokeStep = 0;
+		ScriptSmokeHandle = FTSTicker::GetCoreTicker().AddTicker(
+			FTickerDelegate::CreateRaw(this, &FEpicodeEditorShellModule::HandleScriptSmokeTick),
 			1.0f);
 	}
 	else if (FParse::Param(FCommandLine::Get(), TEXT("EpicodeFocusedEditorSelectFirst")))
@@ -887,6 +901,77 @@ bool FEpicodeEditorShellModule::HandleInspectorSmokeTick(float DeltaTime)
 	default:
 		InspectorSmokeHandle.Reset();
 		UE_LOG(LogEpicodeEditorShell, Display, TEXT("FocusedEditor inspector smoke complete"));
+		if (FParse::Param(FCommandLine::Get(), TEXT("EpicodeFocusedEditorExitSmoke"))
+			&& ShellWindow.IsValid())
+		{
+			ShellWindow->RequestDestroyWindow();
+		}
+		return false;
+	}
+	return true;
+}
+
+bool FEpicodeEditorShellModule::HandleScriptSmokeTick(float DeltaTime)
+{
+	if (!ShellWidget.IsValid())
+	{
+		ScriptSmokeHandle.Reset();
+		return false;
+	}
+
+	switch (ScriptSmokeStep++)
+	{
+	case 0:
+		ShellWidget->CreateWorkbenchSceneForSmokeTest();
+		break;
+	case 1:
+	{
+		TSharedPtr<FMockConversationBackend> Mock = MakeShared<FMockConversationBackend>();
+		Mock->ResponseChunks = {
+			TEXT("已生成脚本：\n```json\n{\"schemaVersion\":1,\"summary\":\"脚本烟测\","),
+			TEXT("\"operations\":[{\"clientId\":\"lamp\",\"method\":\"light.create\",")
+				TEXT("\"params\":{\"lightType\":\"point\",\"name\":\"Smoke Lamp\"}}]}\n```")
+		};
+		ShellWidget->SetAssistantBackendForSmokeTest(Mock);
+		ShellWidget->SendChatMessageForSmokeTest(TEXT("加一盏灯"));
+		break;
+	}
+	case 2:
+	case 3:
+	case 4:
+		ShellWidget->PollChatForSmokeTest();
+		break;
+	case 5:
+		WriteScreenshot(TEXT("EditorShellScriptCard.png"));
+		UE_LOG(LogEpicodeEditorShell, Display,
+			TEXT("FocusedEditor script smoke: captured=%s status=%s"),
+			ShellWidget->HasPendingChatScriptForSmokeTest() ? TEXT("true") : TEXT("false"),
+			*ShellWidget->GetPendingChatScriptStatusForSmokeTest());
+		break;
+	case 6:
+		UE_LOG(LogEpicodeEditorShell, Display,
+			TEXT("FocusedEditor script smoke: applied=%s"),
+			ShellWidget->ApplyPendingChatScriptForSmokeTest() ? TEXT("true") : TEXT("false"));
+		break;
+	case 7:
+		WriteScreenshot(TEXT("EditorShellScriptApplied.png"));
+		UE_LOG(LogEpicodeEditorShell, Display,
+			TEXT("FocusedEditor script smoke: status=%s entities=%d"),
+			*ShellWidget->GetPendingChatScriptStatusForSmokeTest(),
+			ShellWidget->GetEntityCountForSmokeTest());
+		break;
+	case 8:
+		ShellWidget->ProcessShortcutForSmokeTest(EKeys::Z, true, false);
+		break;
+	case 9:
+		WriteScreenshot(TEXT("EditorShellScriptUndo.png"));
+		UE_LOG(LogEpicodeEditorShell, Display,
+			TEXT("FocusedEditor script smoke: afterUndoEntities=%d"),
+			ShellWidget->GetEntityCountForSmokeTest());
+		break;
+	default:
+		ScriptSmokeHandle.Reset();
+		UE_LOG(LogEpicodeEditorShell, Display, TEXT("FocusedEditor script smoke complete"));
 		if (FParse::Param(FCommandLine::Get(), TEXT("EpicodeFocusedEditorExitSmoke"))
 			&& ShellWindow.IsValid())
 		{

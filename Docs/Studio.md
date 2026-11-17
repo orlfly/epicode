@@ -4,7 +4,9 @@
 
 Studio 只属于旧版完整 Editor。使用 `./Scripts/Editor.sh --legacy` 启动后，通过编辑器菜单 `Window > Epicode Studio`，或 Level Editor 工具栏的 `Epicode Studio` 按钮打开。面板可停靠到任意位置。
 
-默认的 `./Scripts/Editor.sh` 启动聚焦工作台，不显示九页签 Studio。聚焦工作台提供 Epicode 菜单、实时视口、对象列表/本地库、对话占位和状态栏；布局与最近场景保存在 `Saved/Epicode/Editor/layout.json`。
+默认的 `./Scripts/Editor.sh` 启动聚焦工作台，不注册也不显示九页签 Studio、Multiplayer 或 Director 页签。聚焦工作台提供 Epicode 菜单、实时视口、对象列表/本地库、对话/脚本卡片和状态栏；布局与最近场景保存在 `Saved/Epicode/Editor/layout.json`。详见 [聚焦工作台](EditorShell.md)。
+
+`--legacy` 与聚焦模式共享同一套命令注册表、场景文档和事务 sink，不是另一套数据格式。`Epicode.EditorShell.LegacyTabs` 在两种启动模式下分别验证页签存在/不存在。
 
 ## 结构
 

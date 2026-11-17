@@ -12,6 +12,8 @@
 #include "EpicodeLocalLibrary.h"
 #include "EpicodeSceneSubsystem.h"
 #include "EpicodeSettings.h"
+#include "EpicodeEditorShellModule.h"
+#include "Framework/Docking/TabManager.h"
 #include "HAL/FileManager.h"
 #include "LevelEditor.h"
 #include "Misc/FileHelper.h"
@@ -343,6 +345,24 @@ bool FEpicodeEditorShellInspectorTest::RunTest(const FString& Parameters)
 
 	FString CloseError;
 	Scene->CloseScene(true, CloseError);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FEpicodeEditorShellLegacyTabsTest,
+	"Epicode.EditorShell.LegacyTabs",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FEpicodeEditorShellLegacyTabsTest::RunTest(const FString& Parameters)
+{
+	const bool bFocused = FEpicodeEditorShellModule::IsFocusedModeRequested();
+	const TSharedRef<FGlobalTabmanager> TabManager = FGlobalTabmanager::Get();
+	TestEqual(TEXT("studio tab matches mode"),
+		TabManager->HasTabSpawner(TEXT("EpicodeStudio")), !bFocused);
+	TestEqual(TEXT("multiplayer tab matches mode"),
+		TabManager->HasTabSpawner(TEXT("EpicodeMultiplayer")), !bFocused);
+	TestEqual(TEXT("director tab matches mode"),
+		TabManager->HasTabSpawner(TEXT("EpicodeDirectorWorkspace")), !bFocused);
 	return true;
 }
 

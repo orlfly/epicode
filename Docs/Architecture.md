@@ -8,7 +8,9 @@
 
 ```mermaid
 flowchart TB
-  UI["EpicodeStudio<br/>Slate 管理器"] --> Registry
+  UI["EpicodeEditorShell<br/>聚焦工作台"] --> Registry
+  Legacy["EpicodeStudio<br/>legacy 九页签"] --> Registry
+  Chat["EpicodeAssistant<br/>对话 / 脚本"] --> Registry
   HTTP["EpicodeControlAPI<br/>HTTP / JSON-RPC / WS"] --> Registry
   Registry["FEpicodeCommandRegistry<br/>命令、校验、事务"] --> Scene["UEpicodeSceneSubsystem<br/>场景生命周期"]
   Scene --> Doc["FEpicodeSceneDocument<br/>JSON 真相源"]
@@ -19,18 +21,20 @@ flowchart TB
   Network["EpicodeNetwork<br/>会话与运行时权威状态"] --> Doc
 ```
 
-八个插件：
+十个插件：
 
 - `EpicodeCore`：类型、场景文档、场景库、Actor、环境、相机、命令注册表、事件总线、设置、诊断。
 - `EpicodeImport`：格式分类、Interchange 导入、任务队列、导入命令。
 - `EpicodeControlAPI`：HTTP 服务、JSON-RPC、批量、幂等、鉴权、自定义 WebSocket 服务。
 - `EpicodeStudio`：九个页签，覆盖场景、Outliner、角色、道具、灯光、环境、导入、渲染和 API。
+- `EpicodeEditorShell`：默认聚焦工作台，负责自绘窗口、Epicode 菜单、视口、对象列表/本地库、检查器、对话/脚本卡片、布局持久化和聚焦快捷键；`--legacy` 时只保留 Editor 启动逻辑。
+- `EpicodeAssistant`：对话后端接口、Mock、OpenAI 兼容 HTTP/SSE、上下文、历史、密钥和 `script.validate`/`script.apply` 编辑脚本服务。
 - `EpicodeRender`：渲染作业、工作进程、MRQ 执行。
 - `EpicodeNetwork`：会话生命周期、角色权限与所有权、场景装载、会话快照、网络状态和后续 UE 复制层。
 - `EpicodeSandbox`：制作包、确定性沙盒世界、固定 tick、随机流、事件日志、检查点和内容摘要。
 - `EpicodeDirector`：叙事节拍、导演 cue、角色接管、Take 和重演调度。
 
-沙盒与导演模块是运行时模块，可在无界面服务器加载；`EpicodeStudio` 只在 Editor 目标加载，负责制作工作区和导演工作区。模块依赖方向为 `Core -> Sandbox -> {Network, Director}`，`Director -> Render`，控制 API 与 Studio 消费运行时模块。
+沙盒与导演模块是运行时模块，可在无界面服务器加载；`EpicodeStudio` 只在 Editor 目标加载，负责旧版制作工作区和导演工作区；`EpicodeEditorShell` 是默认 Editor 入口，通过同一命令注册表操作场景。模块依赖方向为 `Core -> Sandbox -> {Network, Director}`，`Director -> Render`，控制 API、Assistant、Studio 和 EditorShell 消费运行时模块。
 
 ## 数据流
 

@@ -134,3 +134,62 @@ LogEpicodeNetwork: Epicode process role: Director
 ## 结论
 
 干净构建、162 项自动化测试、制作包/沙盒/导演工作流、重演、Take 渲染校验、导演启动参数、Agent、Viewer 和网络回归均通过。制作包已成为新的作者根，沙盒状态是权威世界，导演命令和事件流可重演，Take 版本不可变并按轨道生成独立渲染作业。
+
+## 2026-11-17 聚焦工作台与编辑脚本闭环
+
+范围：`redesign-editor-shell` 的聚焦工作台、四类实体、本地库、对话/脚本、legacy 兼容和文档。
+
+### 自动化
+
+```bash
+cd engine
+./Scripts/Test.sh
+```
+
+结果：187 项 `Success`，0 项 `Fail`，`TEST COMPLETE. EXIT CODE: 0`，日志 `Saved/Logs/test.log`。新增覆盖：
+
+- `Epicode.EditorShell.LegacyTabs`：legacy 模式三个页签 spawner 存在；`-EpicodeFocusedEditor` 模式不存在。
+- `Epicode.Script.Validate`/`Apply`/`Undo`/`Reference`/`Safety`/`Audit`：白名单、资产路径、clientId 映射、单事务提交、一次撤销、失败回滚、确认和审计。
+- `Epicode.Assistant.ScriptFlow`：对话脚本卡片、合法脚本应用、非法脚本拒绝、取消、2 次自动修复后停止。
+
+### 聚焦模式烟测
+
+命令：
+
+```bash
+DISPLAY=:0 ./Scripts/Editor.sh -nosplash \
+  -EpicodeFocusedEditorScriptSmoke -EpicodeFocusedEditorExitSmoke \
+  -stdout -FullStdOutLogOutput
+```
+
+日志 `Saved/Logs/script-smoke.log` 关键行：
+
+```text
+Focused editor shell created (stock window hidden: yes)
+FocusedEditor script smoke: captured=true status=校验通过，可以应用
+FocusedEditor script smoke: applied=true
+FocusedEditor script smoke: status=已应用，影响 1 个实体；Ctrl+Z 可整体撤销 entities=2
+FocusedEditor script smoke: afterUndoEntities=1
+FocusedEditor script smoke complete
+FocusedEditor exit smoke: stock editor restored, requesting exit
+```
+
+截图：
+
+- `Saved/Screenshots/EditorShellScriptCard.png`，716418 bytes，sha256 `0ff8a992fc622d7b8d2fae84c75a3a9dcb755c3392cd1d3ba006f52f597c58a1`。
+- `Saved/Screenshots/EditorShellScriptApplied.png`，736265 bytes，sha256 `c34e9e99f7363864cea8afd052bbdde0320ba019ffd8a709a6ec658bc8bf0f0d`。
+- `Saved/Screenshots/EditorShellScriptUndo.png`，716191 bytes，sha256 `5d9cfddff2a9533178cc015e6694db8285dbb813a843ec5732904586588de6b1`。
+
+四类实体、检查器、库面板、导入和删除的既有截图仍见 `Saved/Logs/editor-shell-workbench.log`。
+
+### 兼容
+
+- `./Scripts/Editor.sh` 默认聚焦模式；`--legacy` 仍注册并打开 Studio/Multiplayer/Director 页签。
+- `--focused` 与 `--legacy` 互斥；无效参数退出码 2。
+- 聚焦模式不注册 Content Browser、蓝图、Sequencer、PIE、地形、植被等入口。
+
+### 已知限制
+
+- DeepSeek Python sidecar（5.3–5.6）尚未接入；`openai_compat` 和 `mock` 可用。
+- 视觉烟测使用 Mock 脚本，不验证真实模型输出质量；真实 Key/网络由用户配置。
+- 无 GPU 的自动化测试只验证 UI 逻辑和事务，不比较像素；本轮脚本烟测已用 `DISPLAY=:0` 抓取窗口截图。

@@ -76,15 +76,15 @@
 
 ## 7. 兼容、测试与文档
 
-- [ ] 7.1 把 `Scripts/Editor.sh` 默认切到聚焦模式；`--legacy` 保留旧版完整 Editor 和九页签 Studio
-- [ ] 7.2 验证 `--legacy` 下现有 `Epicode Studio`、`Epicode Multiplayer`、`Epicode Director Workspace` 仍可打开，聚焦模式不注册这些页签
-- [ ] 7.3 运行 `Epicode.EditorShell.Launch`、`Viewport`、`Scope`、`Responsiveness`、`Epicode.Library.*`、`Epicode.Assistant.*`、`Epicode.Script.*` 测试并记录结果
-- [ ] 7.4 执行手工验收：启动聚焦模式，放置/移动/改属性/删除四类实体，导入/删除库条目，对话生成脚本、预览、应用、撤销；保存截图和日志
-- [ ] 7.5 编写 `Docs/EditorShell.md`：启动、布局、菜单、快捷键、四类实体、范围限制、`--legacy`、故障排查
-- [ ] 7.6 编写 `Docs/Assistant.md`：DeepSeek 配置、密钥、上下文、脚本 schema、白名单、预览/应用/撤销、审计、隐私
-- [ ] 7.7 更新 `Docs/Studio.md`、`Docs/Usage.md`、`Docs/Architecture.md`、`Docs/Operations.md`、`Docs/Acceptance.md`，标注聚焦模式为默认、旧 Studio 为 legacy
-- [ ] 7.8 评估旧 `production-ui` 九页签规格：保留为 legacy 行为，还是后续变更归档；在评审记录中给出结论
-- [ ] 7.9 运行 `openspec validate --all --strict` 和项目自动化测试，确认无规格/文档矛盾
+- [x] 7.1 把 `Scripts/Editor.sh` 默认切到聚焦模式；`--legacy` 保留旧版完整 Editor 和九页签 Studio；`--help`/无效参数退出码 2 已验证
+- [x] 7.2 验证 `--legacy` 下现有 `Epicode Studio`、`Epicode Multiplayer`、`Epicode Director Workspace` 仍可打开，聚焦模式不注册这些页签；`Epicode.EditorShell.LegacyTabs` 在 legacy 模式验证三个 spawner 存在、`-EpicodeFocusedEditor` 模式验证不存在，日志 `Saved/Logs/legacy-tabs.log`/`focused-tabs.log`
+- [x] 7.3 运行 `Epicode.EditorShell.Viewport`、`Scope`、`Responsiveness`、`Epicode.Library.*`、`Epicode.Assistant.*`、`Epicode.Script.*`、`LegacyTabs` 测试并记录结果；全量 187 项通过、0 失败；`Editor.sh --help`/无效参数、focused/legacy 启动日志已记录
+- [x] 7.4 执行聚焦模式验收：workbench/inspector smoke 覆盖四类实体、移动、属性、删除和撤销；资产导入/删除/放置 smoke 覆盖本地库；`ScriptSmoke` 在真实窗口完成对话脚本、预览、应用和撤销。截图 `EditorShellScriptCard.png`、`EditorShellScriptApplied.png`、`EditorShellScriptUndo.png`，日志 `Saved/Logs/script-smoke.log` 与 `editor-shell-workbench.log`
+- [x] 7.5 编写 `Docs/EditorShell.md`：启动、布局、菜单、快捷键、四类实体、范围限制、`--legacy`、故障排查；已链接到 `Docs/Usage.md` 和 `Docs/Studio.md`
+- [x] 7.6 编写 `Docs/Assistant.md`：DeepSeek 配置、密钥、上下文、脚本 schema、白名单、预览/应用/撤销、审计、隐私
+- [x] 7.7 更新 `Docs/Studio.md`、`Docs/Usage.md`、`Docs/Architecture.md`、`Docs/Operations.md`、`Docs/Acceptance.md`，标注聚焦模式为默认、旧 Studio 为 legacy，并补 2026-11-17 聚焦工作台验收记录
+- [x] 7.8 评估旧 `production-ui` 九页签规格：保留为 legacy 行为，不归档、不删除；结论写入 `design.md` Resolved Decisions，后续由独立变更归档
+- [x] 7.9 运行 `openspec validate --all --strict` 和项目自动化测试，确认无规格/文档矛盾；11 个规格/变更通过，全量 187 项测试通过，`git diff --check` 无错误
 
 ## Workflow follow-up
 
