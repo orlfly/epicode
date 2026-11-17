@@ -300,13 +300,26 @@ bool FEpicodeEditorShellModule::TryCreateShellWindow()
 	TSharedRef<SWindow> Window = SNew(SWindow)
 		.Title(FText::FromString(TEXT("Epicode")))
 		.ClientSize(FVector2D(1600.0f, 900.0f))
+		.SizingRule(ESizingRule::UserSized)
 		.SupportsMaximize(true)
 		.SupportsMinimize(true)
-		.UseOSWindowBorder(true)
+		.HasCloseButton(true)
+		.CreateTitleBar(true)
+		// Wayland does not provide server-side decorations for this window.
+		// Draw the title bar and window buttons in Slate so dragging,
+		// minimize, maximize and close work on both Wayland and X11.
+		.UseOSWindowBorder(false)
 		[
 			SAssignNew(ShellWidget, SEpicodeFocusedShell)
 				.LevelEditor(LevelEditor)
 		];
+	UE_LOG(LogEpicodeEditorShell, Log,
+		TEXT("Focused window chrome: osBorder=%s titleBar=%s close=%s maximize=%s minimize=%s"),
+		Window->HasOSWindowBorder() ? TEXT("yes") : TEXT("no"),
+		Window->GetTitleBar().IsValid() ? TEXT("yes") : TEXT("no"),
+		Window->HasCloseBox() ? TEXT("yes") : TEXT("no"),
+		Window->HasMaximizeBox() ? TEXT("yes") : TEXT("no"),
+		Window->HasMinimizeBox() ? TEXT("yes") : TEXT("no"));
 
 	const bool bRetrySmoke = FParse::Param(
 		FCommandLine::Get(), TEXT("EpicodeFocusedEditorViewportRetrySmoke"));
