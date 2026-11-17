@@ -22,5 +22,12 @@
       "Name": "EpicodeCore",
       "Enabled": true
     }
+  ],
+  "PythonRequirements": [
+    {
+      "Requirements": [
+        "deepseek-harness-sdk==0.2.2rc2"
+      ]
+    }
   ]
 }
