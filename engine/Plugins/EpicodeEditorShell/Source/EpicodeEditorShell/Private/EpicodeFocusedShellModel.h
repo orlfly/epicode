@@ -46,6 +46,7 @@ public:
 	void RefreshAssets();
 	void HideAsset(const FString& AssetPath);
 	void RestoreHiddenAssets();
+	bool RemoveAssetEntry(const FString& AssetPath, FString& OutError);
 	FEpicodeCommandResult Execute(const FString& Method, const TSharedPtr<FJsonObject>& Params = nullptr);
 	FEpicodeCommandResult QueryCommand(
 		const FString& Method, const TSharedPtr<FJsonObject>& Params = nullptr) const;

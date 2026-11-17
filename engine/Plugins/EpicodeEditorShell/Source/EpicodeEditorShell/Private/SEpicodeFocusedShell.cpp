@@ -30,6 +30,7 @@
 #include "Misc/CommandLine.h"
 #include "Misc/PackageName.h"
 #include "Misc/Parse.h"
+#include "ObjectTools.h"
 #include "SEpicodeFocusedLevelViewport.h"
 #include "Selection.h"
 #include "EditorViewportCommands.h"
@@ -79,6 +80,26 @@ namespace
 	FSlateColor AccentTextColor()
 	{
 		return FSlateColor(FLinearColor(0.56f, 0.78f, 0.98f, 1.0f));
+	}
+
+	bool EntityReferencesAsset(
+		const FEpicodeEntityRecord& Entity, const FString& PackagePath)
+	{
+		if (!Entity.Data.IsValid())
+		{
+			return false;
+		}
+		for (const TCHAR* Field : { TEXT("staticMesh"), TEXT("skeletalMesh") })
+		{
+			FString Value;
+			if (Entity.Data->TryGetStringField(Field, Value)
+				&& FPackageName::ObjectPathToPackageName(Value).Equals(
+					PackagePath, ESearchCase::IgnoreCase))
+			{
+				return true;
+			}
+		}
+		return false;
 	}
 }
 
@@ -908,7 +929,7 @@ void SEpicodeFocusedShell::BuildCharacterMenu(FMenuBuilder& MenuBuilder)
 			ImportAssetIntoLibrary(TEXT("Character"));
 		})));
 	MenuBuilder.AddSubMenu(
-		MenuText(TEXT("从本地库删除角色")), MenuText(TEXT("只移除索引，不删除资产文件")),
+		MenuText(TEXT("从本地库删除角色")), MenuText(TEXT("移除索引，或检查引用后删除文件")),
 		FNewMenuDelegate::CreateSP(
 			this, &SEpicodeFocusedShell::BuildAssetDeleteMenu, FString(TEXT("Character"))));
 	MenuBuilder.AddMenuEntry(
@@ -939,7 +960,7 @@ void SEpicodeFocusedShell::BuildPropMenu(FMenuBuilder& MenuBuilder)
 		FNewMenuDelegate::CreateSP(
 			this, &SEpicodeFocusedShell::BuildAssetPlaceMenu, FString(TEXT("Prop"))));
 	MenuBuilder.AddSubMenu(
-		MenuText(TEXT("从本地库删除物品")), MenuText(TEXT("只移除索引，不删除资产文件")),
+		MenuText(TEXT("从本地库删除物品")), MenuText(TEXT("移除索引，或检查引用后删除文件")),
 		FNewMenuDelegate::CreateSP(
 			this, &SEpicodeFocusedShell::BuildAssetDeleteMenu, FString(TEXT("Prop"))));
 }
@@ -1008,6 +1029,14 @@ void SEpicodeFocusedShell::BuildAssetDeleteMenu(
 				RefreshStatus();
 				AddChatLine(TEXT("系统"), FString::Printf(
 					TEXT("已从本地库移除 %s（资产文件保留）"), *AssetName));
+			})));
+		MenuBuilder.AddMenuEntry(
+			FText::FromString(FString::Printf(TEXT("%s（删除文件）"), *Row.Name)),
+			MenuText(TEXT("检查当前和已保存场景引用后删除资产文件")),
+			FSlateIcon(),
+			FUIAction(FExecuteAction::CreateLambda([this, AssetPath = Row.AssetPath, AssetName = Row.Name]()
+			{
+				DeleteLibraryAssetWithDialog(AssetPath, AssetName);
 			})));
 	}
 	if (!bAny)
@@ -4690,6 +4719,152 @@ void SEpicodeFocusedShell::RemoveImportedSceneEntities(
 		Model.Execute(TEXT("scene.save"));
 	}
 	Model.Refresh();
+}
+
+void SEpicodeFocusedShell::CollectAssetReferences(
+	const FString& PackagePath, TArray<FString>& OutReferences) const
+{
+	OutReferences.Reset();
+	UEpicodeSceneSubsystem* Scene = UEpicodeSceneSubsystem::GetPrimary();
+	if (!Scene)
+	{
+		return;
+	}
+	TSet<FString> Seen;
+	auto AddReference = [&OutReferences, &Seen](const FString& Label)
+	{
+		if (!Seen.Contains(Label))
+		{
+			Seen.Add(Label);
+			OutReferences.Add(Label);
+		}
+	};
+
+	if (Scene->HasScene())
+	{
+		for (const FEpicodeEntityRecord& Entity : Scene->GetDocument().Entities)
+		{
+			if (EntityReferencesAsset(Entity, PackagePath))
+			{
+				AddReference(FString::Printf(TEXT("当前场景：%s"), *Entity.Name));
+			}
+		}
+	}
+
+	const FString CurrentSceneId = Scene->GetCurrentSceneId();
+	for (const FEpicodeSceneLibraryEntry& Entry : Scene->ListScenes())
+	{
+		if (Entry.SceneId == CurrentSceneId)
+		{
+			continue;
+		}
+		FEpicodeSceneDocument Document;
+		FString Error;
+		if (!FEpicodeSceneLibrary::Load(Entry.DocumentPath, Document, Error))
+		{
+			AddReference(FString::Printf(TEXT("%s（场景读取失败）"), *Entry.Name));
+			continue;
+		}
+		for (const FEpicodeEntityRecord& Entity : Document.Entities)
+		{
+			if (EntityReferencesAsset(Entity, PackagePath))
+			{
+				AddReference(FString::Printf(TEXT("%s：%s"), *Entry.Name, *Entity.Name));
+			}
+		}
+	}
+}
+
+bool SEpicodeFocusedShell::TryDeleteLibraryAsset(
+	const FString& AssetPath, const FString& AssetName, FString& OutError)
+{
+	OutError.Reset();
+	const FString PackagePath = FPackageName::ObjectPathToPackageName(AssetPath);
+	TArray<FString> References;
+	CollectAssetReferences(PackagePath, References);
+	if (!References.IsEmpty())
+	{
+		const int32 Limit = FMath::Min(References.Num(), 8);
+		TArray<FString> Lines;
+		for (int32 Index = 0; Index < Limit; ++Index)
+		{
+			Lines.Add(FString::Printf(TEXT("· %s"), *References[Index]));
+		}
+		if (References.Num() > Limit)
+		{
+			Lines.Add(FString::Printf(TEXT("…另有 %d 处引用"), References.Num() - Limit));
+		}
+		OutError = FString::Printf(
+			TEXT("资产 %s 仍被场景引用，未删除：\n%s"),
+			*AssetName, *FString::Join(Lines, TEXT("\n")));
+		return false;
+	}
+
+	UObject* Asset = LoadObject<UObject>(nullptr, *AssetPath);
+	if (!Asset)
+	{
+		OutError = FString::Printf(TEXT("无法加载资产：%s"), *AssetPath);
+		return false;
+	}
+	FString Filename;
+	if (!FPackageName::TryConvertLongPackageNameToFilename(
+		PackagePath, Filename, FPackageName::GetAssetPackageExtension()))
+	{
+		OutError = FString::Printf(TEXT("无法解析资产包路径：%s"), *PackagePath);
+		return false;
+	}
+	if (!ObjectTools::DeleteSingleObject(Asset, false))
+	{
+		OutError = FString::Printf(TEXT("删除资产对象失败：%s"), *AssetPath);
+		return false;
+	}
+	if (IFileManager::Get().FileExists(*Filename)
+		&& !IFileManager::Get().Delete(*Filename, false, true, true))
+	{
+		OutError = FString::Printf(TEXT("删除资产文件失败：%s"), *Filename);
+		return false;
+	}
+	FString IndexError;
+	if (!Model.RemoveAssetEntry(AssetPath, IndexError))
+	{
+		OutError = FString::Printf(TEXT("移除库索引失败：%s"), *IndexError);
+		return false;
+	}
+	LastAssetSignature = Model.GetAssetSignature();
+	RefreshAssetList();
+	RefreshStatus();
+	return true;
+}
+
+void SEpicodeFocusedShell::DeleteLibraryAssetWithDialog(
+	const FString& AssetPath, const FString& AssetName)
+{
+	if (FMessageDialog::Open(
+		EAppMsgType::YesNo,
+		FText::FromString(FString::Printf(
+			TEXT("删除资产文件 %s？\n\n会先检查当前场景和所有已保存场景的引用；"
+				"存在引用时拒绝删除。"),
+			*AssetName)))
+		!= EAppReturnType::Yes)
+	{
+		return;
+	}
+
+	FString Error;
+	if (TryDeleteLibraryAsset(AssetPath, AssetName, Error))
+	{
+		AddChatLine(TEXT("系统"), FString::Printf(TEXT("已删除资产文件：%s"), *AssetName));
+		return;
+	}
+	FMessageDialog::Open(EAppMsgType::Ok, FText::FromString(Error));
+	Model.SetLastMessage(Error);
+	RefreshStatus();
+}
+
+bool SEpicodeFocusedShell::DeleteLibraryAssetForSmokeTest(
+	const FString& AssetPath, const FString& AssetName, FString& OutError)
+{
+	return TryDeleteLibraryAsset(AssetPath, AssetName, OutError);
 }
 
 bool SEpicodeFocusedShell::PlaceAsset(const FString& AssetPath, const FString& Type)

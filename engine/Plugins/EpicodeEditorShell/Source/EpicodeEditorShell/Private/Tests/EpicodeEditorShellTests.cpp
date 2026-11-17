@@ -4,10 +4,12 @@
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "Containers/Ticker.h"
 #include "Editor.h"
+#include "Engine/StaticMesh.h"
 #include "EpicodeCommand.h"
 #include "EpicodeEngineSubsystem.h"
 #include "EpicodeLocalLibrary.h"
 #include "EpicodeSceneSubsystem.h"
+#include "EpicodeSettings.h"
 #include "HAL/FileManager.h"
 #include "LevelEditor.h"
 #include "Misc/FileHelper.h"
@@ -111,6 +113,21 @@ namespace
 			TEXT("skeletalMesh"),
 			TEXT("/Engine/Tutorial/SubEditors/TutorialAssets/Character/TutorialTPP.TutorialTPP"));
 		return Params;
+	}
+
+	void TickShellImport(const TSharedRef<SEpicodeFocusedShell>& Shell)
+	{
+		for (int32 Attempt = 0;
+			Attempt < 300 && !Shell->GetImportJobIdForSmokeTest().IsEmpty();
+			++Attempt)
+		{
+			FTSTicker::GetCoreTicker().Tick(0.05f);
+			Shell->PollAssetImportForSmokeTest();
+			if (!Shell->GetImportJobIdForSmokeTest().IsEmpty())
+			{
+				FPlatformProcess::Sleep(0.01f);
+			}
+		}
 	}
 }
 
@@ -550,19 +567,6 @@ bool FEpicodeEditorShellAssetImportAsyncTest::RunTest(const FString& Parameters)
 		Root, FString::Printf(TEXT("async_prop_%s.fbx"), *FGuid::NewGuid().ToString(EGuidFormats::Digits)));
 	TestTrue(TEXT("fixture copied"), IFileManager::Get().Copy(*SourcePath, *FixturePath) == COPY_OK);
 
-	auto TickImport = [](const TSharedRef<SEpicodeFocusedShell>& Shell)
-	{
-		for (int32 Attempt = 0; Attempt < 300 && !Shell->GetImportJobIdForSmokeTest().IsEmpty(); ++Attempt)
-		{
-			FTSTicker::GetCoreTicker().Tick(0.05f);
-			Shell->PollAssetImportForSmokeTest();
-			if (!Shell->GetImportJobIdForSmokeTest().IsEmpty())
-			{
-				FPlatformProcess::Sleep(0.01f);
-			}
-		}
-	};
-
 	FString ImportedAssetPath;
 	FString ImportedPackageDir;
 	{
@@ -578,7 +582,7 @@ bool FEpicodeEditorShellAssetImportAsyncTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("initial progress bounded"), Shell->GetImportProgressForSmokeTest() >= 0.0f
 			&& Shell->GetImportProgressForSmokeTest() <= 1.0f);
 
-		TickImport(Shell);
+		TickShellImport(Shell);
 		TestTrue(TEXT("async job finished"), Shell->GetImportJobIdForSmokeTest().IsEmpty());
 		TestTrue(TEXT("success outcome"), Shell->GetLastImportOutcomeForSmokeTest().Contains(TEXT("已导入")));
 		TestTrue(TEXT("success reports progress"), FMath::IsNearlyEqual(
@@ -638,7 +642,7 @@ bool FEpicodeEditorShellAssetImportAsyncTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("cancel import submitted"),
 			Shell->StartAssetImportForSmokeTest(CancelSource, TEXT("Prop")));
 		TestTrue(TEXT("cancel requested"), Shell->CancelAssetImportForSmokeTest());
-		TickImport(Shell);
+		TickShellImport(Shell);
 		TestTrue(TEXT("cancel job cleared"), Shell->GetImportJobIdForSmokeTest().IsEmpty());
 		TestTrue(TEXT("cancel outcome"),
 			Shell->GetLastImportOutcomeForSmokeTest().Contains(TEXT("取消")));
@@ -660,7 +664,7 @@ bool FEpicodeEditorShellAssetImportAsyncTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("failure import submitted"),
 			Shell->StartAssetImportForSmokeTest(FailureSource, TEXT("Prop")));
 		IFileManager::Get().Delete(*FailureSource, false, true, true);
-		TickImport(Shell);
+		TickShellImport(Shell);
 		TestTrue(TEXT("failure job cleared"), Shell->GetImportJobIdForSmokeTest().IsEmpty());
 		TestTrue(TEXT("failure outcome"),
 			Shell->GetLastImportOutcomeForSmokeTest().Contains(TEXT("失败")));
@@ -682,6 +686,147 @@ bool FEpicodeEditorShellAssetImportAsyncTest::RunTest(const FString& Parameters)
 		FString TrashPath;
 		FString DeleteError;
 		if (Scene->DeleteScene(TestSceneId, TrashPath, DeleteError))
+		{
+			IFileManager::Get().DeleteDirectory(*TrashPath, false, true);
+		}
+	}
+	{
+		FEpicodeLocalLibrary Library;
+		FString LibraryError;
+		Library.Refresh(LibraryError);
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FEpicodeEditorShellAssetDeleteTest,
+	"Epicode.EditorShell.AssetDelete",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FEpicodeEditorShellAssetDeleteTest::RunTest(const FString& Parameters)
+{
+	FScopedEditorShellLayout LayoutGuard;
+	UEpicodeSceneSubsystem* Scene = GetTestScene();
+	UEpicodeEngineSubsystem* Engine = GetTestEngine();
+	if (!Scene || !Engine || !StartTestScene(Scene, TEXT("Editor Shell Asset Delete Test")))
+	{
+		AddError(TEXT("Failed to create the asset delete test scene."));
+		return false;
+	}
+
+	const FString FixturePath = FPaths::Combine(
+		FPaths::ProjectDir(), TEXT("Tests/Fixtures/cube.fbx"));
+	const FString Root = FPaths::Combine(
+		FPaths::ProjectSavedDir(),
+		TEXT("Epicode/Tests/AssetDelete"),
+		FGuid::NewGuid().ToString(EGuidFormats::Digits));
+	IFileManager::Get().MakeDirectory(*Root, true);
+	const FString SourcePath = FPaths::Combine(Root, TEXT("delete_prop.fbx"));
+	TestTrue(TEXT("fixture copied"),
+		IFileManager::Get().Copy(*SourcePath, *FixturePath) == COPY_OK);
+
+	TSharedPtr<SEpicodeFocusedShell> Shell = SNew(SEpicodeFocusedShell);
+	const FString Destination = FString::Printf(
+		TEXT("/Game/Epicode/Tests/AssetDelete/%s"),
+		*FGuid::NewGuid().ToString(EGuidFormats::Digits));
+	TestTrue(TEXT("asset imported for delete test"), Shell->StartAssetImportForSmokeTest(
+		SourcePath, TEXT("Prop"), Destination));
+	TickShellImport(Shell.ToSharedRef());
+	TestTrue(TEXT("asset import succeeded"),
+		Shell->GetLastImportOutcomeForSmokeTest().Contains(TEXT("已导入")));
+
+	FString MeshAssetPath;
+	for (const FString& AssetPath : Shell->GetLastImportedAssetPathsForSmokeTest())
+	{
+		if (Cast<UStaticMesh>(LoadObject<UObject>(nullptr, *AssetPath)))
+		{
+			MeshAssetPath = AssetPath;
+			break;
+		}
+	}
+	TestFalse(TEXT("static mesh asset found"), MeshAssetPath.IsEmpty());
+	if (MeshAssetPath.IsEmpty())
+	{
+		Shell->RefreshLibraryForSmokeTest();
+		FString CleanupError;
+		Scene->CloseScene(true, CleanupError);
+		IFileManager::Get().DeleteDirectory(*Root, false, true);
+		return false;
+	}
+
+	FString PackageFile;
+	TestTrue(TEXT("asset package path"),
+		FPackageName::TryConvertLongPackageNameToFilename(
+			FPackageName::ObjectPathToPackageName(MeshAssetPath),
+			PackageFile, FPackageName::GetAssetPackageExtension()));
+	TestTrue(TEXT("asset package exists"), IFileManager::Get().FileExists(*PackageFile));
+
+	TSharedPtr<FJsonObject> PropParams = MakePropParams(TEXT("Referenced Prop"));
+	PropParams->SetStringField(TEXT("staticMesh"), MeshAssetPath);
+	const FEpicodeCommandResult SpawnResult =
+		ExecuteTestCommand(Engine, TEXT("prop.spawn"), PropParams);
+	TestTrue(TEXT("referencing prop spawned"), SpawnResult.bSuccess);
+	TestFalse(TEXT("spawn returned entity id"), SpawnResult.AffectedIds.IsEmpty());
+
+	FString DeleteError;
+	TestFalse(TEXT("referenced asset deletion blocked"),
+		Shell->DeleteLibraryAssetForSmokeTest(MeshAssetPath, TEXT("delete_prop"), DeleteError));
+	TestTrue(TEXT("blocked deletion reports reference"), DeleteError.Contains(TEXT("引用")));
+	TestTrue(TEXT("blocked deletion keeps file"), IFileManager::Get().FileExists(*PackageFile));
+
+	if (!SpawnResult.AffectedIds.IsEmpty())
+	{
+		TSharedPtr<FJsonObject> DeleteParams = MakeShared<FJsonObject>();
+		DeleteParams->SetStringField(TEXT("id"), SpawnResult.AffectedIds[0]);
+		TestTrue(TEXT("referencing prop deleted"),
+			ExecuteTestCommand(Engine, TEXT("entity.delete"), DeleteParams).bSuccess);
+	}
+
+	FEpicodeSceneDocument SavedDocument =
+		FEpicodeSceneDocument::CreateDefault(TEXT("Saved Asset Reference Test"));
+	FEpicodeEntityRecord SavedEntity;
+	SavedEntity.Id = FGuid::NewGuid();
+	SavedEntity.Type = EEpicodeEntityType::Prop;
+	SavedEntity.Name = TEXT("Saved Referenced Prop");
+	SavedEntity.Data = MakeShared<FJsonObject>();
+	SavedEntity.Data->SetStringField(TEXT("staticMesh"), MeshAssetPath);
+	SavedDocument.Entities.Add(SavedEntity);
+	FString SavedDocumentPath;
+	FString SavedSceneError;
+	TestTrue(TEXT("saved scene reference written"),
+		FEpicodeSceneLibrary::Save(
+			SavedDocument,
+			UEpicodeSettings::Get()->GetSceneRootPath(),
+			SavedDocumentPath,
+			SavedSceneError));
+	TestFalse(TEXT("saved scene reference blocks deletion"),
+		Shell->DeleteLibraryAssetForSmokeTest(MeshAssetPath, TEXT("delete_prop"), DeleteError));
+	TestTrue(TEXT("saved reference reported"),
+		DeleteError.Contains(TEXT("Saved Asset Reference Test")));
+	IFileManager::Get().DeleteDirectory(*FPaths::GetPath(SavedDocumentPath), false, true);
+
+	TestTrue(TEXT("unreferenced asset deleted"),
+		Shell->DeleteLibraryAssetForSmokeTest(MeshAssetPath, TEXT("delete_prop"), DeleteError));
+	TestFalse(TEXT("deleted asset file removed"), IFileManager::Get().FileExists(*PackageFile));
+
+	const FString DestinationRoot = FPaths::Combine(
+		FPaths::ProjectContentDir(), TEXT("Epicode/Tests/AssetDelete"));
+	Shell->RefreshLibraryForSmokeTest();
+	Shell.Reset();
+	IFileManager::Get().DeleteDirectory(*DestinationRoot, false, true);
+	IFileManager::Get().DeleteDirectory(*Root, false, true);
+
+	const FString TestSceneId = Scene->GetCurrentSceneId();
+	FString CloseError;
+	if (Scene->HasScene())
+	{
+		Scene->CloseScene(true, CloseError);
+	}
+	if (!TestSceneId.IsEmpty())
+	{
+		FString TrashPath;
+		FString DeleteSceneError;
+		if (Scene->DeleteScene(TestSceneId, TrashPath, DeleteSceneError))
 		{
 			IFileManager::Get().DeleteDirectory(*TrashPath, false, true);
 		}

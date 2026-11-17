@@ -232,6 +232,23 @@ void FEpicodeFocusedShellModel::RestoreHiddenAssets()
 	RefreshAssets();
 }
 
+bool FEpicodeFocusedShellModel::RemoveAssetEntry(
+	const FString& AssetPath, FString& OutError)
+{
+	bHiddenAssetsLoaded = true;
+	if (!LocalLibrary.RemoveEntry(
+		FString::Printf(TEXT("asset:%s"), *AssetPath), OutError))
+	{
+		return false;
+	}
+	if (HiddenAssetPaths.Remove(AssetPath) > 0)
+	{
+		SaveHiddenAssets();
+	}
+	RefreshAssets();
+	return true;
+}
+
 FEpicodeCommandResult FEpicodeFocusedShellModel::Execute(
 	const FString& Method, const TSharedPtr<FJsonObject>& Params)
 {

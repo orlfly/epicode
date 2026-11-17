@@ -65,6 +65,8 @@ public:
 	bool PlaceFirstAssetForSmokeTest(const FString& Type);
 	bool HideFirstAssetForSmokeTest(const FString& Type);
 	bool RestoreHiddenAssetsForSmokeTest();
+	bool DeleteLibraryAssetForSmokeTest(
+		const FString& AssetPath, const FString& AssetName, FString& OutError);
 	void SetInspectorWorldSpaceForSmokeTest(bool bWorldSpace);
 	void SetInspectorSnapForSmokeTest(bool bSnap);
 	double GetInspectorSnapGridForSmokeTest() const { return InspectorSnapGrid.X; }
@@ -205,6 +207,10 @@ private:
 	static FEpicodeCommandResult MakeImportResult(const TSharedPtr<FJsonObject>& Job);
 	bool SaveImportedAssets(const FEpicodeCommandResult& Result, FString& OutError);
 	void RemoveImportedSceneEntities(const FEpicodeCommandResult& Result, bool bSceneWasClean);
+	bool TryDeleteLibraryAsset(
+		const FString& AssetPath, const FString& AssetName, FString& OutError);
+	void DeleteLibraryAssetWithDialog(const FString& AssetPath, const FString& AssetName);
+	void CollectAssetReferences(const FString& PackagePath, TArray<FString>& OutReferences) const;
 	bool PlaceAsset(const FString& AssetPath, const FString& Type);
 	FEpicodeTransform GetPlacementTransform() const;
 	void DeleteSelectedEntity();
