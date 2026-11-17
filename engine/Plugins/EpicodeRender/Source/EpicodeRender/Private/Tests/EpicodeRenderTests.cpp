@@ -2,6 +2,7 @@
 
 #include "EpicodeRenderService.h"
 #include "EpicodeRenderTypes.h"
+#include "EpicodeScopedTestSceneRoot.h"
 #include "EpicodeSceneSubsystem.h"
 #include "EpicodeSettings.h"
 #include "EpicodeDiagnostics.h"
@@ -18,8 +19,17 @@ namespace
 	class FEpicodeRenderTimeoutCheckCommand final : public IAutomationLatentCommand
 	{
 	public:
-		FEpicodeRenderTimeoutCheckCommand(FAutomationTestBase* InTest, UEpicodeSceneSubsystem* InScene, const FString& InJobId, int32 InOldTimeout)
-			: Test(InTest), Scene(InScene), JobId(InJobId), OldTimeout(InOldTimeout)
+		FEpicodeRenderTimeoutCheckCommand(
+			FAutomationTestBase* InTest,
+			UEpicodeSceneSubsystem* InScene,
+			const FString& InJobId,
+			int32 InOldTimeout,
+			TSharedPtr<FEpicodeScopedTestSceneRoot> InSceneRootGuard)
+			: Test(InTest)
+			, Scene(InScene)
+			, JobId(InJobId)
+			, OldTimeout(InOldTimeout)
+			, SceneRootGuard(MoveTemp(InSceneRootGuard))
 		{
 		}
 
@@ -53,6 +63,7 @@ namespace
 		FString JobId;
 		int32 OldTimeout = 1800;
 		int32 Frames = 0;
+		TSharedPtr<FEpicodeScopedTestSceneRoot> SceneRootGuard;
 	};
 }
 
@@ -161,6 +172,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FEpicodeRenderCancelTest, "Epicode.Render.Cance
 
 bool FEpicodeRenderCancelTest::RunTest(const FString& Parameters)
 {
+	FEpicodeScopedTestSceneRoot SceneRootGuard(TEXT("RenderCancel"));
 	UEpicodeSceneSubsystem* Scene = UEpicodeSceneSubsystem::GetPrimary();
 	if (!Scene)
 	{
@@ -213,6 +225,8 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FEpicodeRenderTimeoutTest, "Epicode.Render.Time
 
 bool FEpicodeRenderTimeoutTest::RunTest(const FString& Parameters)
 {
+	TSharedPtr<FEpicodeScopedTestSceneRoot> SceneRootGuard =
+		MakeShared<FEpicodeScopedTestSceneRoot>(TEXT("RenderTimeout"));
 	UEpicodeSceneSubsystem* Scene = UEpicodeSceneSubsystem::GetPrimary();
 	UEpicodeSettings* Settings = GetMutableDefault<UEpicodeSettings>();
 	if (!Scene || !Settings)
@@ -244,7 +258,8 @@ bool FEpicodeRenderTimeoutTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("timeout render submitted"), Job.IsValid());
 	if (Job.IsValid())
 	{
-		ADD_LATENT_AUTOMATION_COMMAND(FEpicodeRenderTimeoutCheckCommand(this, Scene, Job->Id, OldTimeout));
+		ADD_LATENT_AUTOMATION_COMMAND(FEpicodeRenderTimeoutCheckCommand(
+			this, Scene, Job->Id, OldTimeout, SceneRootGuard));
 	}
 	else
 	{

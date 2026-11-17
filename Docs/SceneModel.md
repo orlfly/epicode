@@ -12,6 +12,8 @@ Saved/Epicode/Scenes/<sceneId>/scene.json
 
 场景列表通过扫描 `Saved/Epicode/Scenes/` 下的子目录生成，没有单独的索引文件。`Saved/Epicode/Presets/environment.json` 保存环境预设覆盖。
 
+场景名称不是唯一键，`sceneId` 才是。聚焦工作台遇到同名场景时会在显示名称后追加 `#短sceneId`，菜单和本地库使用同一份消歧后的名称。自动化测试使用 `Saved/Epicode/Tests/Scenes/` 下的临时场景根，不写入用户场景库。
+
 ## 文档结构
 
 ```json

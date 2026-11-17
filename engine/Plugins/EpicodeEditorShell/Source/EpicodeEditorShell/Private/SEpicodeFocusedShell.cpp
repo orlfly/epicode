@@ -903,8 +903,8 @@ void SEpicodeFocusedShell::BuildRecentSceneMenu(FMenuBuilder& MenuBuilder)
 		}
 		MenuBuilder.AddMenuEntry(
 			FText::FromString(Row.bCurrent
-				? FString::Printf(TEXT("%s（当前）"), *Row.Name)
-				: Row.Name),
+				? FString::Printf(TEXT("%s（当前）"), *Row.DisplayName)
+				: Row.DisplayName),
 			FText::FromString(Row.Id), FSlateIcon(), Action);
 	}
 	MenuBuilder.AddMenuSeparator();
@@ -916,7 +916,7 @@ void SEpicodeFocusedShell::BuildRecentSceneMenu(FMenuBuilder& MenuBuilder)
 			continue;
 		}
 		MenuBuilder.AddMenuEntry(
-			FText::FromString(FString::Printf(TEXT("删除：%s"), *Row.Name)),
+			FText::FromString(FString::Printf(TEXT("删除：%s"), *Row.DisplayName)),
 			MenuText(TEXT("移到回收站，不能删除当前场景")), FSlateIcon(),
 			FUIAction(FExecuteAction::CreateLambda([this, Id = Row.Id]()
 			{
@@ -938,8 +938,8 @@ void SEpicodeFocusedShell::BuildOpenSceneMenu(FMenuBuilder& MenuBuilder)
 	for (const FEpicodeFocusedSceneRow& Row : Model.GetScenes())
 	{
 		const FString Label = Row.bCurrent
-			? FString::Printf(TEXT("%s（当前）"), *Row.Name)
-			: Row.Name;
+			? FString::Printf(TEXT("%s（当前）"), *Row.DisplayName)
+			: Row.DisplayName;
 		const FString Tooltip = Row.bAvailable
 			? Row.Id
 			: FString::Printf(TEXT("%s · 文件不可用"), *Row.Id);
@@ -2838,6 +2838,16 @@ FString SEpicodeFocusedShell::GetFirstSceneNameForSmokeTest() const
 	return Scenes.IsEmpty() ? FString() : Scenes[0].Name;
 }
 
+TArray<FString> SEpicodeFocusedShell::GetSceneDisplayNamesForSmokeTest() const
+{
+	TArray<FString> Names;
+	for (const FEpicodeFocusedSceneRow& Row : Model.GetScenes())
+	{
+		Names.Add(Row.DisplayName);
+	}
+	return Names;
+}
+
 void SEpicodeFocusedShell::SetAssetSearchForSmokeTest(const FString& InSearch)
 {
 	AssetSearch = InSearch;
@@ -3965,7 +3975,7 @@ void SEpicodeFocusedShell::RefreshSceneList()
 		const FString Label = FString::Printf(
 			TEXT("%s %s%s"),
 			bLibrarySelected ? TEXT("◆") : (Row.bCurrent ? TEXT("●") : TEXT("○")),
-			*Row.Name,
+			*Row.DisplayName,
 			Row.bCurrent ? TEXT(" · 当前") : TEXT(""));
 		const FEpicodeLibraryEntry* Entry = Model.FindLibraryScene(Row.Id);
 		const FString Modified = Entry && Entry->ModifiedAt.GetTicks() > 0
@@ -3974,13 +3984,13 @@ void SEpicodeFocusedShell::RefreshSceneList()
 		const FString Detail = Entry
 			? FString::Printf(
 				TEXT("ID %s · %d 实体 · %s%s"),
-				*Row.Id.Left(8),
+				*Row.ShortId,
 				Entry->EntityCount,
 				*Modified.Right(11),
 				Row.bAvailable ? TEXT("") : TEXT(" · 不可用"))
 			: FString::Printf(
 				TEXT("ID %s%s"),
-				*Row.Id.Left(8),
+				*Row.ShortId,
 				Row.bAvailable ? TEXT("") : TEXT(" · 不可用"));
 		FString Tooltip = Entry
 			? FString::Printf(

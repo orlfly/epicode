@@ -132,6 +132,7 @@ public:
 	int32 GetFilteredAssetCountForSmokeTest() const;
 	int32 GetFilteredSceneCountForSmokeTest() const;
 	FString GetFirstSceneNameForSmokeTest() const;
+	TArray<FString> GetSceneDisplayNamesForSmokeTest() const;
 	void SetAssetSearchForSmokeTest(const FString& InSearch);
 	void SetAssetTagFilterForSmokeTest(const FString& InTag);
 	void SetAssetTypeFilterForSmokeTest(const FString& InType);

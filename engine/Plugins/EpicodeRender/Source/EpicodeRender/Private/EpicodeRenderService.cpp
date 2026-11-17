@@ -217,9 +217,10 @@ bool FEpicodeRenderService::LaunchWorker(const TSharedPtr<FEpicodeRenderJob>& Jo
 		return false;
 	}
 	const FString WorkerLog = FPaths::Combine(Job->JobDirectory, TEXT("worker.log"));
+	const FString SceneRoot = UEpicodeSettings::Get()->GetSceneRootPath();
 	const FString Args = FString::Printf(
-		TEXT("\"%s\" /Engine/Maps/Entry -EpicodeRenderWorker=\"%s\" -abslog=\"%s\" -unattended -nosplash -NoSound -stdout -FullStdOutLogOutput -RenderOffscreen -windowed -ResX=%d -ResY=%d"),
-		*ProjectFile, *RequestPath, *WorkerLog, Job->Request.Width, Job->Request.Height);
+		TEXT("\"%s\" /Engine/Maps/Entry -EpicodeRenderWorker=\"%s\" -EpicodeSceneRoot=\"%s\" -abslog=\"%s\" -unattended -nosplash -NoSound -stdout -FullStdOutLogOutput -RenderOffscreen -windowed -ResX=%d -ResY=%d"),
+		*ProjectFile, *RequestPath, *SceneRoot, *WorkerLog, Job->Request.Width, Job->Request.Height);
 	uint32 ProcessId = 0;
 	Job->ProcessHandle = FPlatformProcess::CreateProc(*EditorCmd, *Args, true, false, false, &ProcessId, 0, *Job->JobDirectory, nullptr, nullptr);
 	Job->ProcessId = ProcessId;

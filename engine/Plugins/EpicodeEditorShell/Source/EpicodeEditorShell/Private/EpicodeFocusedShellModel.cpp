@@ -28,6 +28,12 @@ namespace
 			return TEXT("分组");
 		}
 	}
+
+	FString ShortSceneId(const FString& SceneId)
+	{
+		FString Digits = SceneId.Replace(TEXT("-"), TEXT(""));
+		return Digits.Len() > 8 ? Digits.Right(8) : Digits;
+	}
 }
 
 UEpicodeSceneSubsystem* FEpicodeFocusedShellModel::GetSceneSubsystem() const
@@ -62,6 +68,7 @@ void FEpicodeFocusedShellModel::Refresh()
 		FEpicodeFocusedSceneRow Row;
 		Row.Id = Entry.SceneId;
 		Row.Name = Entry.Name;
+		Row.ShortId = ShortSceneId(Row.Id);
 		Row.bCurrent = Entry.bCurrent;
 		Row.bAvailable = Entry.bAvailable;
 		if (const FEpicodeLibraryEntry* IndexEntry = LocalLibrary.FindEntry(
@@ -74,6 +81,19 @@ void FEpicodeFocusedShellModel::Refresh()
 			Row.Tags = *OldTags;
 		}
 		Scenes.Add(MoveTemp(Row));
+	}
+
+	TMap<FString, int32> SceneNameCounts;
+	for (const FEpicodeFocusedSceneRow& Row : Scenes)
+	{
+		++SceneNameCounts.FindOrAdd(Row.Name);
+	}
+	for (FEpicodeFocusedSceneRow& Row : Scenes)
+	{
+		Row.bDuplicateName = SceneNameCounts.FindRef(Row.Name) > 1;
+		Row.DisplayName = Row.bDuplicateName
+			? FString::Printf(TEXT("%s · #%s"), *Row.Name, *Row.ShortId)
+			: Row.Name;
 	}
 
 	if (!Scene->HasScene())

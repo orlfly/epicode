@@ -8,6 +8,7 @@
 #include "EpicodeEventBus.h"
 #include "EpicodeSceneDocument.h"
 #include "EpicodeSceneLibrary.h"
+#include "EpicodeScopedTestSceneRoot.h"
 #include "EpicodeSceneSubsystem.h"
 #include "EpicodeSettings.h"
 #include "EpicodeTypes.h"
@@ -433,6 +434,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FEpicodeSceneLifecycleTest, "Epicode.Core.Scene
 
 bool FEpicodeSceneLifecycleTest::RunTest(const FString& Parameters)
 {
+	FEpicodeScopedTestSceneRoot SceneRootGuard(TEXT("SceneLifecycle"));
 	UEpicodeSceneSubsystem* Scene = UEpicodeSceneSubsystem::GetPrimary();
 	if (!Scene)
 	{

@@ -4,6 +4,7 @@
 #include "Editor/Transactor.h"
 #include "EpicodeCommand.h"
 #include "EpicodeEngineSubsystem.h"
+#include "EpicodeScopedTestSceneRoot.h"
 #include "EpicodeSceneSubsystem.h"
 #include "EpicodeStudioViewModel.h"
 #include "Misc/Paths.h"
@@ -168,6 +169,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FEpicodeStudioResponsivenessTest, "Epicode.Stud
 
 bool FEpicodeStudioResponsivenessTest::RunTest(const FString& Parameters)
 {
+	FEpicodeScopedTestSceneRoot SceneRootGuard(TEXT("StudioResponsiveness"));
 	UEpicodeEngineSubsystem* Engine = UEpicodeEngineSubsystem::Get();
 	UEpicodeSceneSubsystem* Scene = UEpicodeSceneSubsystem::GetPrimary();
 	if (!Engine || !Scene)
@@ -292,6 +294,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FEpicodeStudioPanelTest, "Epicode.Studio.Panel"
 
 bool FEpicodeStudioPanelTest::RunTest(const FString& Parameters)
 {
+	FEpicodeScopedTestSceneRoot SceneRootGuard(TEXT("StudioPanel"));
 	UEpicodeEngineSubsystem* Engine = UEpicodeEngineSubsystem::Get();
 	UEpicodeSceneSubsystem* Scene = UEpicodeSceneSubsystem::GetPrimary();
 	if (!Engine || !Scene)

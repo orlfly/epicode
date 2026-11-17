@@ -10,6 +10,7 @@
 #include "EpicodeCommand.h"
 #include "EpicodeEngineSubsystem.h"
 #include "EpicodeLocalLibrary.h"
+#include "EpicodeScopedTestSceneRoot.h"
 #include "EpicodeSceneSubsystem.h"
 #include "EpicodeSettings.h"
 #include "EpicodeEditorShellModule.h"
@@ -458,6 +459,55 @@ bool FEpicodeEditorShellLibraryPanelTest::RunTest(const FString& Parameters)
 		TEXT("manual refresh preserves assets"),
 		Shell->GetAssetCountForSmokeTest(),
 		AssetCount);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FEpicodeEditorShellSceneNameDisambiguationTest,
+	"Epicode.EditorShell.SceneNameDisambiguation",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FEpicodeEditorShellSceneNameDisambiguationTest::RunTest(const FString& Parameters)
+{
+	FScopedEditorShellLayout LayoutGuard;
+	FEpicodeScopedTestSceneRoot SceneRootGuard(TEXT("SceneNames"));
+	UEpicodeSceneSubsystem* Scene = GetTestScene();
+	if (!Scene)
+	{
+		AddError(TEXT("Scene subsystem is unavailable."));
+		return false;
+	}
+
+	FString Error;
+	if (Scene->HasScene())
+	{
+		Scene->CloseScene(true, Error);
+	}
+	TestTrue(TEXT("first duplicate scene created"), Scene->NewScene(TEXT("Duplicate Scene"), Error));
+	FString FirstPath;
+	TestTrue(TEXT("first duplicate scene saved"), Scene->SaveScene(FirstPath, Error));
+	Scene->CloseScene(true, Error);
+
+	TestTrue(TEXT("second duplicate scene created"), Scene->NewScene(TEXT("Duplicate Scene"), Error));
+	FString SecondPath;
+	TestTrue(TEXT("second duplicate scene saved"), Scene->SaveScene(SecondPath, Error));
+	Scene->CloseScene(true, Error);
+
+	TSharedRef<SEpicodeFocusedShell> Shell = SNew(SEpicodeFocusedShell);
+	const TArray<FString> DisplayNames = Shell->GetSceneDisplayNamesForSmokeTest();
+	TSet<FString> UniqueNames;
+	int32 DuplicateCount = 0;
+	for (const FString& Name : DisplayNames)
+	{
+		UniqueNames.Add(Name);
+		if (Name.Contains(TEXT("Duplicate Scene")))
+		{
+			++DuplicateCount;
+			TestTrue(TEXT("duplicate scene display name includes short id"), Name.Contains(TEXT("#")));
+		}
+	}
+	TestEqual(TEXT("both duplicate scenes listed"), DuplicateCount, 2);
+	TestEqual(TEXT("scene display names are unique"), UniqueNames.Num(), DisplayNames.Num());
 	return true;
 }
 

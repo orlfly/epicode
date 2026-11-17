@@ -19,6 +19,9 @@ struct FEpicodeFocusedSceneRow
 {
 	FString Id;
 	FString Name;
+	FString DisplayName;
+	FString ShortId;
+	bool bDuplicateName = false;
 	bool bCurrent = false;
 	bool bAvailable = true;
 	TArray<FString> Tags;

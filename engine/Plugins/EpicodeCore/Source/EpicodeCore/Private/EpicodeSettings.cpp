@@ -86,6 +86,13 @@ void UEpicodeSettings::ApplyEnvironmentOverrides()
 	{
 		RenderOutputRoot = OutputOverride;
 	}
+
+	FString SceneRootOverride;
+	if (FParse::Value(FCommandLine::Get(), TEXT("EpicodeSceneRoot="), SceneRootOverride)
+		&& !SceneRootOverride.IsEmpty())
+	{
+		SceneRoot = SceneRootOverride;
+	}
 }
 
 FString UEpicodeSettings::ResolveProjectPath(const FString& InPath) const
