@@ -21,6 +21,14 @@ class SEpicodeFocusedLevelViewport;
 class FDragDropEvent;
 class SWidget;
 
+enum class EEpicodeImportConflictChoice : uint8
+{
+	Ask,
+	Overwrite,
+	Copy,
+	Cancel
+};
+
 class SEpicodeFocusedShell : public SCompoundWidget
 {
 public:
@@ -58,6 +66,7 @@ public:
 	FString GetImportStageForSmokeTest() const { return PendingImportStage; }
 	FString GetImportJobIdForSmokeTest() const { return PendingImportJobId; }
 	FString GetLastImportOutcomeForSmokeTest() const { return LastImportOutcome; }
+	FString GetLastMessageForSmokeTest() const { return Model.GetLastMessage(); }
 	float GetLastImportProgressForSmokeTest() const { return LastImportProgress; }
 	const TArray<FString>& GetLastImportedAssetPathsForSmokeTest() const
 	{
@@ -73,6 +82,10 @@ public:
 	bool RestoreHiddenAssetsForSmokeTest();
 	bool DeleteLibraryAssetForSmokeTest(
 		const FString& AssetPath, const FString& AssetName, FString& OutError);
+	void SetImportConflictChoiceForSmokeTest(EEpicodeImportConflictChoice Choice)
+	{
+		ImportConflictChoice = Choice;
+	}
 	void SetInspectorWorldSpaceForSmokeTest(bool bWorldSpace);
 	void SetInspectorSnapForSmokeTest(bool bSnap);
 	double GetInspectorSnapGridForSmokeTest() const { return InspectorSnapGrid.X; }
@@ -224,6 +237,11 @@ private:
 		const FVector* OptionalLocation = nullptr) const;
 	TSharedRef<SWidget> BuildViewportDropTarget(TSharedRef<SWidget> Content);
 	FReply HandleAssetDrop(const FDragDropEvent& DragDropEvent);
+	FString ResolveAssetImportDestination(
+		const FString& SourcePath, const FString& Kind,
+		const FString& DestinationPath) const;
+	bool ResolveImportConflict(
+		const FString& Destination, bool& bOutReplaceExisting);
 	void DeleteSelectedEntity();
 	void DeleteSelectedEntityOfType(EEpicodeEntityType Type);
 	void CreateLight(const FString& LightType);
@@ -296,6 +314,8 @@ private:
 	FString LastImportOutcome;
 	float LastImportProgress = 0.0f;
 	TArray<FString> LastImportedAssetPaths;
+	EEpicodeImportConflictChoice ImportConflictChoice =
+		EEpicodeImportConflictChoice::Ask;
 	FString LastSignature;
 	FString LastAssetSignature;
 	FString LastInspectorSignature;

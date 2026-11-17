@@ -283,6 +283,8 @@ curl -sS -X POST http://127.0.0.1:8710/api/v1/command \
 
 导入文件必须位于允许的导入根目录下。默认是工程目录和 `/tmp/epicode-imports`，可通过 `DefaultEpicode.ini` 的 `ImportRoots` 增加。文件对话框从工程目录开始，选择其他目录前请先确认根目录配置。
 
+源路径会逐级检查符号链接组件，任何符号链接都会被拒绝；目标路径必须是 `/Game/` 下且不含 `..`、反斜杠、双斜杠或尾斜杠的路径。
+
 导入任务状态为 `queued`、`running`、`succeeded`、`failed`、`cancelled`。相同内容和相同导入选项会复用 `Saved/Epicode/imports.json` 中记录的资产，并返回复用警告。
 
 ### 3.6 渲染
@@ -560,6 +562,7 @@ curl -sS -X POST http://127.0.0.1:8710/api/v1/command \
 - 已经开始执行的同步 Interchange 导入无法中断，会完成资产导入。任务返回后会删除本次创建的实体，已完成的资产保留，状态记录为 `cancelled`。
 - 导入队列串行执行，大量导入会占用该队列。
 - 相同内容哈希和相同选项会复用已有资产，并在 `warnings` 中说明。
+- 聚焦工作台导入时若目标包已存在，会弹出“覆盖/另存副本/取消”；覆盖设置 `replaceExisting=true`，副本自动追加时间戳后缀，取消不提交任务。
 
 ## 6. 渲染工作流
 

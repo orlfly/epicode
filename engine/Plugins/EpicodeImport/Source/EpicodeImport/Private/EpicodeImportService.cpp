@@ -18,6 +18,42 @@
 #include "Serialization/JsonSerializer.h"
 #include "Serialization/JsonWriter.h"
 
+#if PLATFORM_UNIX
+#include <sys/stat.h>
+#endif
+
+namespace
+{
+	bool IsSymlinkPath(const FString& Path)
+	{
+#if PLATFORM_UNIX
+		struct stat Info;
+		return lstat(TCHAR_TO_UTF8(*Path), &Info) == 0 && S_ISLNK(Info.st_mode);
+#else
+		return IFileManager::Get().IsSymlink(*Path);
+#endif
+	}
+
+	bool HasSymlinkComponent(const FString& FullPath, const FString& FullRoot)
+	{
+		FString Current = FullPath;
+		while (!Current.IsEmpty() && Current.Len() > FullRoot.Len())
+		{
+			if (IsSymlinkPath(Current))
+			{
+				return true;
+			}
+			const FString Parent = FPaths::GetPath(Current);
+			if (Parent.IsEmpty() || Parent == Current)
+			{
+				break;
+			}
+			Current = Parent;
+		}
+		return IsSymlinkPath(FullRoot);
+	}
+}
+
 FEpicodeImportService& FEpicodeImportService::Get()
 {
 	static FEpicodeImportService Instance;
@@ -80,6 +116,7 @@ bool FEpicodeImportService::ValidateRequest(const FEpicodeImportRequest& InReque
 	if (Roots.Num() > 0)
 	{
 		bool bAllowed = false;
+		FString MatchedRoot;
 		for (const FString& Root : Roots)
 		{
 			FString FullRoot = FPaths::ConvertRelativePathToFull(Root);
@@ -88,6 +125,7 @@ bool FEpicodeImportService::ValidateRequest(const FEpicodeImportRequest& InReque
 				|| FullPath.StartsWith(FullRoot + TEXT("/"), ESearchCase::IgnoreCase))
 			{
 				bAllowed = true;
+				MatchedRoot = FullRoot;
 				break;
 			}
 		}
@@ -96,11 +134,19 @@ bool FEpicodeImportService::ValidateRequest(const FEpicodeImportRequest& InReque
 			OutError = TEXT("Import file is outside the configured import roots.");
 			return false;
 		}
+		if (HasSymlinkComponent(FullPath, MatchedRoot))
+		{
+			OutError = TEXT("Import file path contains a symbolic link.");
+			return false;
+		}
 	}
 	if (!InRequest.DestinationPath.IsEmpty())
 	{
 		if (!InRequest.DestinationPath.StartsWith(TEXT("/Game/"), ESearchCase::CaseSensitive)
-			|| InRequest.DestinationPath.Contains(TEXT("..")))
+			|| InRequest.DestinationPath.Contains(TEXT(".."))
+			|| InRequest.DestinationPath.Contains(TEXT("\\"))
+			|| InRequest.DestinationPath.Contains(TEXT("//"))
+			|| InRequest.DestinationPath.EndsWith(TEXT("/")))
 		{
 			OutError = TEXT("DestinationPath must be a content path under /Game/.");
 			return false;
@@ -310,7 +356,9 @@ bool FEpicodeImportService::ImportWithInterchange(const FEpicodeImportRequest& I
 		return CreateEntitiesForAssets(InRequest, ImportedObjects, OutResult);
 	}
 	FString Destination = ResolveDestination(InRequest);
-	if (FPackageName::DoesPackageExist(Destination) && !InRequest.bReplaceExisting)
+	const FString ExistingPackage = FString::Printf(
+		TEXT("%s/%s"), *Destination, *FPaths::GetBaseFilename(Destination));
+	if (FPackageName::DoesPackageExist(ExistingPackage) && !InRequest.bReplaceExisting)
 	{
 		Destination = FString::Printf(TEXT("%s_%s"), *Destination, *FDateTime::UtcNow().ToString(TEXT("%Y%m%d%H%M%S")));
 	}

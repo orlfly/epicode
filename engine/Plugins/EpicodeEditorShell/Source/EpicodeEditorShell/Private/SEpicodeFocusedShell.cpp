@@ -4375,7 +4375,8 @@ void SEpicodeFocusedShell::ImportAssetIntoLibrary(const FString& Kind)
 		return;
 	}
 
-	if (!StartAssetImport(Files[0], bCharacter ? TEXT("character") : TEXT("prop")))
+	if (!StartAssetImport(Files[0], bCharacter ? TEXT("character") : TEXT("prop"))
+		&& !Model.GetLastMessage().Contains(TEXT("已取消")))
 	{
 		FMessageDialog::Open(
 			EAppMsgType::Ok,
@@ -4400,6 +4401,26 @@ bool SEpicodeFocusedShell::StartAssetImport(
 	if (!DestinationPath.IsEmpty())
 	{
 		Params->SetStringField(TEXT("destinationPath"), DestinationPath);
+	}
+	const FString EffectiveDestination =
+		ResolveAssetImportDestination(SourcePath, Kind, DestinationPath);
+	const FString ExistingPackage = FString::Printf(
+		TEXT("%s/%s"),
+		*EffectiveDestination,
+		*FPaths::GetBaseFilename(EffectiveDestination));
+	if (FPackageName::DoesPackageExist(ExistingPackage))
+	{
+		bool bReplaceExisting = false;
+		if (!ResolveImportConflict(EffectiveDestination, bReplaceExisting))
+		{
+			RefreshImportStatus();
+			RefreshStatus();
+			return false;
+		}
+		if (bReplaceExisting)
+		{
+			Params->SetBoolField(TEXT("replaceExisting"), true);
+		}
 	}
 	bPendingImportSceneWasClean = Model.HasScene() && !Model.IsDirty();
 	const FEpicodeCommandResult Result = Model.Execute(TEXT("import.submit"), Params);
@@ -4434,6 +4455,59 @@ bool SEpicodeFocusedShell::StartAssetImport(
 	AddChatLine(TEXT("系统"), FString::Printf(
 		TEXT("开始导入%s：%s"), Kind.Equals(TEXT("character"), ESearchCase::IgnoreCase)
 			? TEXT("角色") : TEXT("物品"), *FPaths::GetCleanFilename(SourcePath)));
+	return true;
+}
+
+FString SEpicodeFocusedShell::ResolveAssetImportDestination(
+	const FString& SourcePath, const FString& Kind, const FString& DestinationPath) const
+{
+	if (!DestinationPath.IsEmpty())
+	{
+		return DestinationPath;
+	}
+	const FString KindDirectory =
+		Kind.Equals(TEXT("character"), ESearchCase::IgnoreCase)
+			? TEXT("character") : TEXT("prop");
+	const FString BaseName = FPaths::MakeValidFileName(
+		FPaths::GetBaseFilename(SourcePath), TEXT('_'));
+	return FString::Printf(
+		TEXT("%s/%s/%s"),
+		*UEpicodeSettings::Get()->ImportContentRoot,
+		*KindDirectory,
+		*BaseName);
+}
+
+bool SEpicodeFocusedShell::ResolveImportConflict(
+	const FString& Destination, bool& bOutReplaceExisting)
+{
+	EEpicodeImportConflictChoice Choice = ImportConflictChoice;
+	ImportConflictChoice = EEpicodeImportConflictChoice::Ask;
+	if (Choice == EEpicodeImportConflictChoice::Ask)
+	{
+		const EAppReturnType::Type Answer = FMessageDialog::Open(
+			EAppMsgType::YesNoCancel,
+			FText::FromString(FString::Printf(
+				TEXT("目标已存在：%s\n\n是=覆盖，否=另存副本，取消=不导入。"),
+				*Destination)));
+		if (Answer == EAppReturnType::Yes)
+		{
+			Choice = EEpicodeImportConflictChoice::Overwrite;
+		}
+		else if (Answer == EAppReturnType::No)
+		{
+			Choice = EEpicodeImportConflictChoice::Copy;
+		}
+		else
+		{
+			Choice = EEpicodeImportConflictChoice::Cancel;
+		}
+	}
+	if (Choice == EEpicodeImportConflictChoice::Cancel)
+	{
+		Model.SetLastMessage(TEXT("已取消导入"));
+		return false;
+	}
+	bOutReplaceExisting = Choice == EEpicodeImportConflictChoice::Overwrite;
 	return true;
 }
 

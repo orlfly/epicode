@@ -606,6 +606,47 @@ bool FEpicodeEditorShellAssetImportAsyncTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("isolated destination leaves library unchanged"),
 			Shell->GetAssetPathsForSmokeTest().Num(), Before.Num());
 
+		Shell->SetImportConflictChoiceForSmokeTest(
+			EEpicodeImportConflictChoice::Cancel);
+		TestFalse(TEXT("conflict cancel aborts submission"),
+			Shell->StartAssetImportForSmokeTest(
+				SourcePath, TEXT("Prop"), Destination));
+		TestTrue(TEXT("conflict cancel message"),
+			Shell->GetLastMessageForSmokeTest().Contains(TEXT("取消")));
+		TestTrue(TEXT("conflict cancel leaves no job"),
+			Shell->GetImportJobIdForSmokeTest().IsEmpty());
+
+		Shell->SetImportConflictChoiceForSmokeTest(
+			EEpicodeImportConflictChoice::Overwrite);
+		TestTrue(TEXT("conflict overwrite submits"),
+			Shell->StartAssetImportForSmokeTest(
+				SourcePath, TEXT("Prop"), Destination));
+		TickShellImport(Shell);
+		TestTrue(TEXT("conflict overwrite succeeds"),
+			Shell->GetLastImportOutcomeForSmokeTest().Contains(TEXT("已导入")));
+		if (!ImportedAssetPath.IsEmpty())
+		{
+			const FString PackageName =
+				FPackageName::ObjectPathToPackageName(ImportedAssetPath);
+			const FString RepackedFile = FPackageName::LongPackageNameToFilename(
+				PackageName, FPackageName::GetAssetPackageExtension());
+			TestTrue(TEXT("overwrite keeps package"), IFileManager::Get().FileExists(*RepackedFile));
+		}
+
+		Shell->SetImportConflictChoiceForSmokeTest(
+			EEpicodeImportConflictChoice::Copy);
+		TestTrue(TEXT("conflict copy submits"),
+			Shell->StartAssetImportForSmokeTest(
+				SourcePath, TEXT("Prop"), Destination));
+		TickShellImport(Shell);
+		TestTrue(TEXT("conflict copy succeeds"),
+			Shell->GetLastImportOutcomeForSmokeTest().Contains(TEXT("已导入")));
+		if (!ImportedAssetPath.IsEmpty())
+		{
+			TestFalse(TEXT("copy uses a new asset path"),
+				Shell->GetLastImportedAssetPathsForSmokeTest().Contains(ImportedAssetPath));
+		}
+
 		TestEqual(TEXT("scene entities cleaned after import"),
 			Scene->GetDocument().Entities.Num(), InitialEntityCount);
 		Shell->RefreshLibraryForSmokeTest();

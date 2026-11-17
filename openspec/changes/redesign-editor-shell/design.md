@@ -378,7 +378,7 @@ SidecarIdleSeconds=300
 
 ## 聚焦工作台实施结果
 
-2026-11-16 已完成 2.1–2.9（含 2.3 场景文件导入和 2.4 角色/物品本地库）、3.1–3.7 以及 4.1–4.8（本地库索引、扫描、面板、场景导入、资产导入、带引用检查的库删除和拖放放置）；CLI smoke 和正式 automation 测试均已覆盖。实现仍坚持“界面级隐藏、复用命令注册表、保留 `--legacy`”的约束。
+2026-11-16 已完成 2.1–2.9（含 2.3 场景文件导入和 2.4 角色/物品本地库）、3.1–3.7 以及 4.1–4.11（本地库索引、扫描、面板、场景导入、资产导入、引用删除、拖放放置、路径安全、冲突处理和测试覆盖）；CLI smoke 和正式 automation 测试均已覆盖。实现仍坚持“界面级隐藏、复用命令注册表、保留 `--legacy`”的约束。
 
 ### 布局与面板
 
@@ -443,6 +443,22 @@ SidecarIdleSeconds=300
 - 落点使用 `FLevelEditorViewportClient::GetCursorWorldLocationFromMousePos` 取得鼠标射线，与 `Z=0` 平面求交；交点过近、过远或射线平行地面时退回相机前方 400cm，避免放置到相机后方或无穷远。
 - `PlaceAsset` 接受可选落点覆盖，保持自动选中和切到移动模式；测试通过 `PlaceAssetAtForSmokeTest` 验证显式坐标落点。
 
+### 路径安全（4.9）
+
+- `FEpicodeImportService::ValidateRequest` 依次检查文件存在、非空、`MaxImportBytes`、扩展名、`.umap` 拒绝、源路径位于 `ImportRoots`、目标路径为 `/Game/` 下且无 `..`、反斜杠、双斜杠或尾斜杠。
+- 源路径按配置根目录逐级检查符号链接组件（Linux 用 `lstat`，其他平台回退 `IFileManager::IsSymlink`），任何符号链接都拒绝，避免通过项目内链接逃逸到根目录外。
+- `Epicode.Import.PathSafety` 覆盖根目录外文件、目标目录穿越、反斜杠目标、尾斜杠目标、空文件、非支持扩展名和符号链接逃逸；测试创建并清理临时文件和链接。
+
+### 冲突处理（4.10）
+
+- 导入服务继续用内容 SHA-1 + 导入选项（类型、目标、缩放、旋转、材质）作为 `Saved/Epicode/imports.json` 的键；命中时直接复用已有资产并返回 `Reused` 警告，不重复 Interchange 导入。
+- 目标包路径按 `<destination>/<destination basename>` 计算；包已存在时 Shell 弹出“是=覆盖 / 否=另存副本 / 取消=不导入”。覆盖设置 `replaceExisting=true`；副本让服务追加 UTC 时间戳后缀；取消不提交任务、不留下索引。
+- `Epicode.Import.Reuse` 验证同内容同选项复用；`Epicode.EditorShell.AssetImportAsync` 的隔离目标分支验证取消、覆盖和副本三种选择。
+
+### 测试覆盖（4.11）
+
+- `Epicode.Library.Index` 覆盖索引重建/schema/缺失资产；`Epicode.Import.*` 覆盖分类、选项、角色、取消、路径安全和 SHA-1 复用；`Epicode.EditorShell.AssetDelete` 覆盖显式落点放置、当前/已保存场景引用阻断和文件删除；`Epicode.EditorShell.AssetImportAsync` 覆盖进度、取消、失败清理和冲突选项。
+
 ### 快捷键与拦截
 
 - 通过 `SLevelViewport::GetCommandList()` 的子命令列表覆盖通用命令：`Q/W/E/R`（`FEditorViewportCommands`）、`F`（`FocusViewportToSelection`）、`Delete`（`FGenericCommands`）、`Ctrl+Z`/`Ctrl+Shift+Z`/`Ctrl+Y`（Undo/Redo）、`Ctrl+S`（`FLevelEditorCommands::Save`）。
@@ -457,7 +473,7 @@ SidecarIdleSeconds=300
 
 ### 验证证据
 
-- 构建：`engine/Scripts/Build.sh`，`Result: Succeeded`；插件二进制 sha256 `c3f5b9d932825251a46bd55f6e2e622ea58068890a72beb29a063191486cc1ee`，大小 1198872 bytes。
+- 构建：`engine/Scripts/Build.sh`，`Result: Succeeded`；插件二进制 sha256 `6026f7e3e22b335a1b33e41e754db758dd5c4d240f4a31c72ae797dba1846491`，大小 1203464 bytes。
 - 工作台截图（4.4 面板验收）：`Saved/Screenshots/EditorShellWorkbench.png`（1600x900，sha256 `9f364ac2...fd4b22a`）、折叠布局 `EditorShellCollapsed.png`、菜单 `EditorShellMenu.png`、菜单 popup `EditorShellMenuPopup.png`（137x194）。
 - 菜单实际打开：日志 `FocusedEditor menu smoke: label=场景 open=true`；Slate 主窗口截图不含 popup，使用 `WriteActiveWindowScreenshot` 抓取 137x194 菜单窗口。
 - 场景文件导入：`-EpicodeFocusedEditorSceneImportSmoke=/tmp/epicode-import-test/scene.json` 日志 `FocusedEditor scene import smoke: success=true`，截图 `EditorShellSceneImport.png`（1600x900，`fb3fd5de...b4acd77e`）；场景库出现 `Imported Scene Test`。
@@ -465,8 +481,8 @@ SidecarIdleSeconds=300
 - 资产持久化：首次导入后 `Content/Epicode/Imported` 生成 16 个 `.uasset`（约 932K）；重启后 workbench smoke 资源库仍显示 `cube`（物品）和 `skeletal`（角色）共 2 项，截图即上面的工作台截图。
 - 检查器 smoke：`-EpicodeFocusedEditorInspectorSmoke` 覆盖物品属性（位置、可见性、物理）、灯光强度/衰减、摄像 FOV/活动相机、角色速度/暂停；日志 `prop ... snap=true grid=10.0 ...`、`camera ... active=true`、`character ... speed=true paused=true`、`undo ... restored=true`。截图 `EditorShellInspectorProp.png`（`e834edb5...e9650c7`）、`EditorShellInspectorLight.png`（`b1ece030...475eb2e7`）、`EditorShellInspectorCamera.png`（`1b9d9647...a3e6f918`）、`EditorShellInspectorCharacter.png`（`ee2cc137...504d9203`）。
 - 快捷键：W/E/R/Q/F 均 `handled=true`；Delete 后实体数 4 -> 3，Ctrl+Z 后 3 -> 4；Ctrl+S `handled=true`；无 `EnsureFailed`。
-- 自动化测试：`Scripts/Test.sh` 运行 `Epicode.*` 全部 170 项，`0` 失败；新增 `Epicode.EditorShell.Viewport` 验证真实 `SLevelViewport`、对象选择、W/E/R gizmo 模式、数值变换、Delete 后实体数 4 -> 3 和 Ctrl+Z 恢复 4；`Epicode.EditorShell.Scope` 验证 10 个聚焦菜单且环境/地形/植被/蓝图/动画蓝图/Sequencer/PIE/渲染队列/导航/物理约束/分组/材质图入口均不存在；`Epicode.EditorShell.Inspector` 验证四类实体属性、可见性、位置吸附、活动相机、角色速度/暂停和物品物理；`Epicode.EditorShell.LibraryPanel` 验证场景/资产搜索、标签过滤、类型过滤、空结果和手动刷新；`Epicode.EditorShell.SceneImport` 验证不支持 schema 拒绝、首次导入、副本新 ID、库内选中和场景库写入；`Epicode.EditorShell.AssetImportAsync` 验证 `import.submit` 任务提交、`queued` 初始阶段、成功保存资产包并清理实体、取消不新增资产、失败清理实体且资源库计数不变；`Epicode.EditorShell.AssetDelete` 验证当前场景引用阻断、已保存场景引用阻断、引用解除后删除文件和索引；`Epicode.Library.Index` 验证重建、JSON schema、Upsert/Load、缺失资产标记、损坏备份和恢复。
-- 本地库索引：`Saved/Epicode/Library/index.json` 当前 5 个场景条目、0 个资产条目，2047 bytes，sha256 `55e51b0f88016d4b5bb45d2aef5f17641e8c11c5d985a509f2e145485df714c2`；场景列表的搜索、分类、刷新、定位和索引详情显示在工作台截图中。
+- 自动化测试：`Scripts/Test.sh` 运行 `Epicode.*` 全部 172 项，`0` 失败；新增 `Epicode.EditorShell.Viewport` 验证真实 `SLevelViewport`、对象选择、W/E/R gizmo 模式、数值变换、Delete 后实体数 4 -> 3 和 Ctrl+Z 恢复 4；`Epicode.EditorShell.Scope` 验证 10 个聚焦菜单且环境/地形/植被/蓝图/动画蓝图/Sequencer/PIE/渲染队列/导航/物理约束/分组/材质图入口均不存在；`Epicode.EditorShell.Inspector` 验证四类实体属性、可见性、位置吸附、活动相机、角色速度/暂停和物品物理；`Epicode.EditorShell.LibraryPanel` 验证场景/资产搜索、标签过滤、类型过滤、空结果和手动刷新；`Epicode.EditorShell.SceneImport` 验证不支持 schema 拒绝、首次导入、副本新 ID、库内选中和场景库写入；`Epicode.EditorShell.AssetImportAsync` 验证 `import.submit` 任务提交、`queued` 初始阶段、成功保存资产包并清理实体、取消不新增资产、失败清理实体且资源库计数不变，以及目标冲突取消/覆盖/副本；`Epicode.EditorShell.AssetDelete` 验证显式落点、当前场景引用阻断、已保存场景引用阻断、引用解除后删除文件和索引；`Epicode.Import.PathSafety` 验证根目录外文件、目录穿越、符号链接逃逸、空文件和非支持扩展名；`Epicode.Import.Reuse` 验证 SHA-1 内容和选项复用；`Epicode.Library.Index` 验证重建、JSON schema、Upsert/Load、缺失资产标记、损坏备份和恢复。
+- 本地库索引：`Saved/Epicode/Library/index.json` 当前 5 个场景条目、0 个资产条目，2047 bytes，sha256 `92e8c973731669f73cfc6f01ca26097082de6954846c3675cc6461da466671f7`；场景列表的搜索、分类、刷新、定位和索引详情显示在工作台截图中。
 - 布局恢复：把 `layout.json` 改为左右折叠、宽度 0.30/0.15 后重启，日志 `layout loaded: left=false right=false leftWidth=0.300 rightWidth=0.150 recent=2 camera=true`；截图 `EditorShellLayoutLoad.png`（`d70d99c7...c25b53f7`）。
 - 视口重试：`-EpicodeFocusedEditorViewportRetrySmoke` 先注入创建失败，1 秒后重试；日志 `viewport retry smoke: ready=true`，截图 `EditorShellViewportRetry.png`（`4d17a5d2...3995e9c1`）。
 - 证据全文：`engine/Saved/Logs/editor-shell-workbench.log`。

@@ -40,9 +40,9 @@
 - [x] 4.6 实现角色/物品导入：复用 Interchange/OBJ 流程、目标路径、骨骼/静态网格校验、进度、取消、失败清理；文件对话框通过 `import.submit` 异步任务提交，左栏显示文件名/阶段/百分比/进度条/取消按钮，成功后保存资产包并清理临时实体，失败或取消后清理实体并恢复干净场景；新增 `Epicode.EditorShell.AssetImportAsync` 自动化测试
 - [x] 4.7 实现库删除：场景走 `scene.delete` 回收站；角色/物品默认只删索引；显式删除资产时检查当前和已保存场景引用；库菜单区分“移除索引”和“删除文件”，引用检查命中时列出场景/实体并拒绝删除，删除成功后同步移除索引和 `.uasset`；新增 `Epicode.EditorShell.AssetDelete` 自动化测试
 - [x] 4.8 实现放置：双击/拖放到视口，调用 `character.spawn`/`prop.spawn`，初始位置用视口中心或鼠标交点；资源库行支持 `OnDragDetected` 启动资产拖拽操作，视口外层 `SDropTarget` 接收并在鼠标射线与地面交点放置，保留单击放置、自动选中和移动模式；`Epicode.EditorShell.AssetDelete` 增加显式落点放置断言
-- [ ] 4.9 实现路径安全：ImportRoots、`/Game/` 目标、目录穿越、符号链接逃逸、扩展名和大小限制
-- [ ] 4.10 实现冲突处理：SHA-1 复用、选项冲突覆盖/副本/取消、名称冲突重命名/取消
-- [ ] 4.11 编写 `Epicode.Library.Index`、`Import`、`Delete`、`Place`、`PathSafety` 自动化测试
+- [x] 4.9 实现路径安全：ImportRoots、`/Game/` 目标、目录穿越、符号链接逃逸、扩展名和大小限制；校验源文件位于配置根目录，拒绝符号链接组件、空文件、超限文件、非 `/Game/` 或含 `..`/反斜杠/双斜杠的目录；新增 `Epicode.Import.PathSafety` 自动化测试
+- [x] 4.10 实现冲突处理：SHA-1 复用、选项冲突覆盖/副本/取消、名称冲突重命名/取消；`imports.json` 按内容哈希+选项复用已有资产，目标包已存在时弹出“覆盖/副本/取消”，覆盖设置 `replaceExisting=true`，副本使用时间戳后缀；新增 `Epicode.Import.Reuse` 与 `AssetImportAsync` 冲突分支
+- [x] 4.11 编写 `Epicode.Library.Index`、`Import`、`Delete`、`Place`、`PathSafety` 自动化测试；已有 `Epicode.Library.Index`、`Epicode.Import.*`、`Epicode.EditorShell.AssetDelete`（含显式落点放置）、`Epicode.Import.PathSafety`、`Epicode.Import.Reuse` 覆盖
 
 ## 5. 对话与 DeepSeek 后端
 
