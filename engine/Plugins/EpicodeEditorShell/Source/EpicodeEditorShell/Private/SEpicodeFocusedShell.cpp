@@ -15,6 +15,7 @@
 #include "EpicodeEntityActors.h"
 #include "EpicodeSceneLibrary.h"
 #include "EpicodeSceneSubsystem.h"
+#include "EpicodeScript.h"
 #include "EpicodeSettings.h"
 #include "Framework/Application/SlateApplication.h"
 #include "Framework/Commands/UICommandList.h"
@@ -4323,7 +4324,7 @@ FString SEpicodeFocusedShell::BuildChatContext() const
 	return FConversationContextBuilder::Build(Input, MaxChars);
 }
 
-bool SEpicodeFocusedShell::SendChatMessage(const FString& Message)
+bool SEpicodeFocusedShell::SendChatMessage(const FString& Message, bool bRepairRequest)
 {
 	const FString Prompt = Message.TrimStartAndEnd();
 	if (Prompt.IsEmpty())
@@ -4333,6 +4334,10 @@ bool SEpicodeFocusedShell::SendChatMessage(const FString& Message)
 	if (!bChatInitialized)
 	{
 		InitializeChat();
+	}
+	if (!bRepairRequest)
+	{
+		ChatScriptRepairAttempts = 0;
 	}
 	if (ChatStream.IsValid())
 	{
@@ -4451,6 +4456,7 @@ void SEpicodeFocusedShell::PollChatStream(float DeltaSeconds)
 			bChatStreamFinished = true;
 			ChatStatus = TEXT("生成完成");
 			ChatStream.Reset();
+			CaptureChatScriptFromLastAssistant();
 			SaveChatHistory();
 			bChanged = true;
 		}
@@ -4534,6 +4540,7 @@ bool SEpicodeFocusedShell::LoadChatConversation(const FString& ConversationId)
 
 	ChatConversationId = ConversationId;
 	ChatMessages = MoveTemp(Loaded);
+	ClearPendingChatScript();
 	ChatLastError.Reset();
 	ChatLastUserMessage.Reset();
 	for (int32 Index = ChatMessages.Num() - 1; Index >= 0; --Index)
@@ -4563,6 +4570,9 @@ void SEpicodeFocusedShell::RefreshChatHistory()
 			+ TEXT(":") + Message.Content + TEXT("\n");
 	}
 	Signature += ChatBackendStatus + TEXT("|") + ChatStatus + TEXT("|") + ChatLastError;
+	Signature += TEXT("|") + PendingChatScriptMessageId + TEXT("|")
+		+ PendingChatScriptStatus + TEXT("|") + PendingChatScriptError
+		+ (bPendingChatScriptApplied ? TEXT("|applied") : TEXT(""));
 	if (Signature == ChatRenderedSignature)
 	{
 		return;
@@ -4598,6 +4608,18 @@ void SEpicodeFocusedShell::RefreshChatHistory()
 					.ColorAndOpacity(Color)
 					.AutoWrapText(true)
 			];
+
+		if (!PendingChatScriptMessageId.IsEmpty()
+			&& Message.Id == PendingChatScriptMessageId
+			&& PendingChatScript.IsValid())
+		{
+			ChatHistoryBox->AddSlot()
+				.AutoHeight()
+				.Padding(FMargin(4.0f, 2.0f, 4.0f, 6.0f))
+				[
+					BuildPendingScriptCard()
+				];
+		}
 	}
 
 	if (ChatScroll.IsValid())
@@ -4648,6 +4670,658 @@ void SEpicodeFocusedShell::ShowChatSettings()
 		*FConversationSecretStore::GetDefaultKeyFilePath(),
 		*FConversationSecretStore::GetEnvironmentVariableName());
 	FMessageDialog::Open(EAppMsgType::Ok, FText::FromString(Message));
+}
+
+void SEpicodeFocusedShell::CaptureChatScriptFromLastAssistant()
+{
+	int32 MessageIndex = INDEX_NONE;
+	for (int32 Index = ChatMessages.Num() - 1; Index >= 0; --Index)
+	{
+		if (ChatMessages[Index].Role == EConversationRole::Assistant)
+		{
+			MessageIndex = Index;
+			break;
+		}
+	}
+	if (MessageIndex == INDEX_NONE)
+	{
+		return;
+	}
+
+	const FConversationMessage& Message = ChatMessages[MessageIndex];
+	const FString JsonText = FEpicodeScriptService::ExtractJsonObject(Message.Content);
+	const bool bLooksLikeScript = Message.Content.Contains(TEXT("schemaVersion"))
+		|| Message.Content.Contains(TEXT("\"operations\""));
+	if (JsonText.IsEmpty())
+	{
+		if (bLooksLikeScript && RequestChatScriptRepair(TEXT("回复中没有可解析的 JSON 对象")))
+		{
+			return;
+		}
+		ClearPendingChatScript();
+		return;
+	}
+
+	TSharedPtr<FJsonObject> Script;
+	const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(JsonText);
+	if (!FJsonSerializer::Deserialize(Reader, Script)
+		|| !Script.IsValid()
+		|| !Script->HasField(TEXT("operations")))
+	{
+		if (bLooksLikeScript && RequestChatScriptRepair(TEXT("JSON 解析失败或缺少 operations 字段")))
+		{
+			return;
+		}
+		ClearPendingChatScript();
+		return;
+	}
+
+	PendingChatScript = Script;
+	PendingChatScriptMessageId = Message.Id;
+	PendingChatScriptStatus.Reset();
+	PendingChatScriptError.Reset();
+	PendingChatApplyResult.Reset();
+	bPendingChatScriptApplied = false;
+	bPendingChatScriptDetails = true;
+
+	TSharedPtr<FJsonObject> ValidateParams = MakeShared<FJsonObject>();
+	ValidateParams->SetObjectField(TEXT("script"), Script);
+	const FEpicodeCommandResult ValidationResult = Model.QueryCommand(
+		TEXT("script.validate"), ValidateParams);
+	PendingChatValidation = ValidationResult.Result;
+
+	bool bValid = false;
+	bool bRequiresConfirmation = false;
+	if (PendingChatValidation.IsValid())
+	{
+		PendingChatValidation->TryGetBoolField(TEXT("valid"), bValid);
+		PendingChatValidation->TryGetBoolField(
+			TEXT("requiresConfirmation"), bRequiresConfirmation);
+	}
+	if (!ValidationResult.bSuccess || !PendingChatValidation.IsValid())
+	{
+		PendingChatScriptStatus = TEXT("校验失败");
+		PendingChatScriptError = ValidationResult.ErrorMessage.IsEmpty()
+			? TEXT("script.validate 未返回结果")
+			: ValidationResult.ErrorMessage;
+		return;
+	}
+	if (!bValid)
+	{
+		FString ErrorSummary;
+		const TArray<TSharedPtr<FJsonValue>>* Errors = nullptr;
+		if (PendingChatValidation->TryGetArrayField(TEXT("errors"), Errors)
+			&& Errors != nullptr)
+		{
+			for (int32 Index = 0; Index < Errors->Num() && Index < 3; ++Index)
+			{
+				const TSharedPtr<FJsonObject> Entry = (*Errors)[Index]->AsObject();
+				FString MessageText;
+				if (Entry.IsValid())
+				{
+					Entry->TryGetStringField(TEXT("message"), MessageText);
+				}
+				if (!MessageText.IsEmpty())
+				{
+					ErrorSummary += ErrorSummary.IsEmpty()
+						? MessageText
+						: TEXT("；") + MessageText;
+				}
+			}
+		}
+		if (ErrorSummary.IsEmpty())
+		{
+			ErrorSummary = TEXT("script.validate 返回 valid=false");
+		}
+		if (CanAutoRepairChatScript()
+			&& RequestChatScriptRepair(ErrorSummary))
+		{
+			PendingChatScriptStatus = FString::Printf(
+				TEXT("校验失败，正在自动修复（%d/%d）"),
+				ChatScriptRepairAttempts,
+				UEpicodeSettings::Get() != nullptr
+					? UEpicodeSettings::Get()->AssistantMaxRepairAttempts
+					: 0);
+		}
+		else
+		{
+			PendingChatScriptStatus = ChatScriptRepairAttempts > 0
+				? FString::Printf(
+					TEXT("校验失败，自动修复 %d 次后仍失败，请修改后重试"),
+					ChatScriptRepairAttempts)
+				: TEXT("校验失败，请让助手修正脚本");
+		}
+	}
+	else if (bRequiresConfirmation)
+	{
+		ChatScriptRepairAttempts = 0;
+		PendingChatScriptStatus = TEXT("校验通过，应用前需要确认");
+	}
+	else
+	{
+		ChatScriptRepairAttempts = 0;
+		PendingChatScriptStatus = TEXT("校验通过，可以应用");
+	}
+}
+
+bool SEpicodeFocusedShell::CanAutoRepairChatScript() const
+{
+	const UEpicodeSettings* Settings = UEpicodeSettings::Get();
+	if (Settings == nullptr || Settings->AssistantMaxRepairAttempts <= 0)
+	{
+		return false;
+	}
+	if (ChatScriptRepairAttempts >= Settings->AssistantMaxRepairAttempts)
+	{
+		return false;
+	}
+	FString Reason;
+	return ChatBackend.IsValid() && ChatBackend->IsAvailable(Reason);
+}
+
+bool SEpicodeFocusedShell::RequestChatScriptRepair(const FString& ErrorSummary)
+{
+	if (!CanAutoRepairChatScript())
+	{
+		return false;
+	}
+	++ChatScriptRepairAttempts;
+	const FString Prompt = FString::Printf(
+		TEXT("上一条回复的编辑脚本未通过校验。请只返回修正后的完整 JSON 脚本")
+		TEXT("（schemaVersion=1，包含 operations），不要解释。\n校验错误：%s"),
+		*ErrorSummary);
+	return SendChatMessage(Prompt, true);
+}
+
+TSharedRef<SWidget> SEpicodeFocusedShell::BuildPendingScriptCard()
+{
+	TSharedPtr<FJsonObject> Normalized;
+	const TSharedPtr<FJsonObject>* NormalizedObject = nullptr;
+	if (PendingChatValidation.IsValid()
+		&& PendingChatValidation->TryGetObjectField(TEXT("normalizedScript"), NormalizedObject)
+		&& NormalizedObject != nullptr)
+	{
+		Normalized = *NormalizedObject;
+	}
+	const TSharedPtr<FJsonObject> Script = Normalized.IsValid() ? Normalized : PendingChatScript;
+
+	FString Summary = TEXT("AI 编辑脚本");
+	if (Script.IsValid())
+	{
+		Script->TryGetStringField(TEXT("summary"), Summary);
+	}
+	int32 OperationCount = 0;
+	int32 AffectedCount = 0;
+	bool bValid = false;
+	bool bRequiresConfirmation = false;
+	if (PendingChatValidation.IsValid())
+	{
+		PendingChatValidation->TryGetNumberField(TEXT("operationCount"), OperationCount);
+		PendingChatValidation->TryGetNumberField(TEXT("affectedCount"), AffectedCount);
+		PendingChatValidation->TryGetBoolField(TEXT("valid"), bValid);
+		PendingChatValidation->TryGetBoolField(
+			TEXT("requiresConfirmation"), bRequiresConfirmation);
+	}
+
+	const TArray<TSharedPtr<FJsonValue>>* Errors = nullptr;
+	const TArray<TSharedPtr<FJsonValue>>* Warnings = nullptr;
+	const TArray<TSharedPtr<FJsonValue>>* Preview = nullptr;
+	if (PendingChatValidation.IsValid())
+	{
+		PendingChatValidation->TryGetArrayField(TEXT("errors"), Errors);
+		PendingChatValidation->TryGetArrayField(TEXT("warnings"), Warnings);
+		PendingChatValidation->TryGetArrayField(TEXT("preview"), Preview);
+	}
+
+	auto JoinStrings = [](const TArray<TSharedPtr<FJsonValue>>* Values, int32 Limit)
+	{
+		FString Joined;
+		if (Values == nullptr)
+		{
+			return Joined;
+		}
+		for (int32 Index = 0; Index < Values->Num() && Index < Limit; ++Index)
+		{
+			if (!(*Values)[Index].IsValid())
+			{
+				continue;
+			}
+			FString Text;
+			if ((*Values)[Index]->Type == EJson::String)
+			{
+				Text = (*Values)[Index]->AsString();
+			}
+			else if ((*Values)[Index]->Type == EJson::Object)
+			{
+				(*Values)[Index]->AsObject()->TryGetStringField(TEXT("message"), Text);
+			}
+			if (!Text.IsEmpty())
+			{
+				Joined += Joined.IsEmpty() ? Text : TEXT("；") + Text;
+			}
+		}
+		if (Values->Num() > Limit)
+		{
+			Joined += FString::Printf(TEXT("；另有 %d 条"), Values->Num() - Limit);
+		}
+		return Joined;
+	};
+
+	const FString ErrorText = JoinStrings(Errors, 3);
+	const FString WarningText = JoinStrings(Warnings, 3);
+	const FString StatusText = PendingChatScriptError.IsEmpty()
+		? PendingChatScriptStatus
+		: PendingChatScriptStatus + TEXT(" · ") + PendingChatScriptError;
+
+	TSharedRef<SVerticalBox> Details = SNew(SVerticalBox);
+	if (Preview != nullptr)
+	{
+		for (int32 Index = 0; Index < Preview->Num(); ++Index)
+		{
+			const TSharedPtr<FJsonObject> Operation = (*Preview)[Index]->AsObject();
+			if (!Operation.IsValid())
+			{
+				continue;
+			}
+			FString Action;
+			FString Method;
+			FString Target;
+			bool bDestructive = false;
+			Operation->TryGetStringField(TEXT("action"), Action);
+			Operation->TryGetStringField(TEXT("method"), Method);
+			Operation->TryGetStringField(TEXT("target"), Target);
+			Operation->TryGetBoolField(TEXT("destructive"), bDestructive);
+			if (Action == TEXT("create"))
+			{
+				Action = TEXT("新建");
+			}
+			else if (Action == TEXT("delete"))
+			{
+				Action = TEXT("删除");
+			}
+			else
+			{
+				Action = TEXT("修改");
+			}
+			FString Line = FString::Printf(TEXT("%d. %s · %s"), Index + 1, *Action, *Method);
+			if (!Target.IsEmpty())
+			{
+				Line += TEXT(" · ") + Target;
+			}
+			const TArray<TSharedPtr<FJsonValue>>* Fields = nullptr;
+			if (Operation->TryGetArrayField(TEXT("fields"), Fields)
+				&& Fields != nullptr && Fields->Num() > 0)
+			{
+				FString FieldNames;
+				for (const TSharedPtr<FJsonValue>& Field : *Fields)
+				{
+					if (!Field.IsValid() || Field->Type != EJson::String)
+					{
+						continue;
+					}
+					FieldNames += FieldNames.IsEmpty()
+						? Field->AsString()
+						: TEXT(", ") + Field->AsString();
+				}
+				if (!FieldNames.IsEmpty())
+				{
+					Line += TEXT(" · 字段：") + FieldNames;
+				}
+			}
+			const TArray<TSharedPtr<FJsonValue>>* Assets = nullptr;
+			if (Operation->TryGetArrayField(TEXT("assets"), Assets)
+				&& Assets != nullptr && Assets->Num() > 0)
+			{
+				FString AssetNames;
+				for (const TSharedPtr<FJsonValue>& Asset : *Assets)
+				{
+					if (!Asset.IsValid() || Asset->Type != EJson::String)
+					{
+						continue;
+					}
+					AssetNames += AssetNames.IsEmpty()
+						? Asset->AsString()
+						: TEXT(", ") + Asset->AsString();
+				}
+				if (!AssetNames.IsEmpty())
+				{
+					Line += TEXT(" · 资产：") + AssetNames;
+				}
+			}
+			if (bDestructive)
+			{
+				Line += TEXT("（破坏性）");
+			}
+			FGuid TargetId;
+			const bool bCanLocate = FGuid::Parse(Target, TargetId)
+				&& Model.FindEntity(TargetId) != nullptr;
+			Details->AddSlot()
+				.AutoHeight()
+				.Padding(FMargin(2.0f, 1.0f))
+				[
+					SNew(SHorizontalBox)
+					+ SHorizontalBox::Slot()
+						.FillWidth(1.0f)
+						.VAlign(VAlign_Center)
+						[
+							SNew(STextBlock)
+								.Text(FText::FromString(Line))
+								.Font(FAppStyle::Get().GetFontStyle("SmallFont"))
+								.ColorAndOpacity(bDestructive
+									? FSlateColor(FLinearColor(0.95f, 0.55f, 0.45f))
+									: MutedTextColor())
+								.AutoWrapText(true)
+						]
+					+ SHorizontalBox::Slot()
+						.AutoWidth()
+						.Padding(FMargin(3.0f, 0.0f, 0.0f, 0.0f))
+						[
+							SNew(SButton)
+								.ButtonStyle(FAppStyle::Get(), "Menu.Button")
+								.ContentPadding(FMargin(4.0f, 1.0f))
+								.Visibility(bCanLocate
+									? EVisibility::Visible
+									: EVisibility::Collapsed)
+								.OnClicked_Lambda([this, TargetId]()
+								{
+									SelectEntity(TargetId, true);
+									return FReply::Handled();
+								})
+								[
+									SNew(STextBlock)
+										.Text(LOCTEXT("LocateScriptEntity", "定位"))
+										.Font(FAppStyle::Get().GetFontStyle("SmallFont"))
+								]
+						]
+				];
+		}
+	}
+	if (!ErrorText.IsEmpty())
+	{
+		Details->AddSlot()
+			.AutoHeight()
+			.Padding(FMargin(2.0f, 3.0f, 2.0f, 1.0f))
+			[
+				SNew(STextBlock)
+					.Text(FText::FromString(TEXT("错误：") + ErrorText))
+					.Font(FAppStyle::Get().GetFontStyle("SmallFont"))
+					.ColorAndOpacity(FSlateColor(FLinearColor(0.95f, 0.45f, 0.40f)))
+					.AutoWrapText(true)
+			];
+	}
+	if (!WarningText.IsEmpty())
+	{
+		Details->AddSlot()
+			.AutoHeight()
+			.Padding(FMargin(2.0f, 3.0f, 2.0f, 1.0f))
+			[
+				SNew(STextBlock)
+					.Text(FText::FromString(TEXT("警告：") + WarningText))
+					.Font(FAppStyle::Get().GetFontStyle("SmallFont"))
+					.ColorAndOpacity(FSlateColor(FLinearColor(0.95f, 0.75f, 0.40f)))
+					.AutoWrapText(true)
+			];
+	}
+
+	return SNew(SBorder)
+		.BorderImage(FAppStyle::Get().GetBrush("Brushes.Header"))
+		.Padding(FMargin(6.0f))
+		[
+			SNew(SVerticalBox)
+			+ SVerticalBox::Slot()
+				.AutoHeight()
+				[
+					SNew(STextBlock)
+						.Text(FText::FromString(FString::Printf(
+							TEXT("AI 编辑脚本 · %d 个操作 · 影响 %d 个实体"),
+							OperationCount, AffectedCount)))
+						.Font(FAppStyle::Get().GetFontStyle("SmallFont"))
+						.ColorAndOpacity(AccentTextColor())
+				]
+			+ SVerticalBox::Slot()
+				.AutoHeight()
+				.Padding(FMargin(0.0f, 2.0f))
+				[
+					SNew(STextBlock)
+						.Text(FText::FromString(Summary))
+						.Font(FAppStyle::Get().GetFontStyle("SmallFont"))
+						.ColorAndOpacity(PanelTextColor())
+						.AutoWrapText(true)
+				]
+			+ SVerticalBox::Slot()
+				.AutoHeight()
+				[
+					SNew(STextBlock)
+						.Text(FText::FromString(StatusText))
+						.Font(FAppStyle::Get().GetFontStyle("SmallFont"))
+						.ColorAndOpacity(bValid
+							? MutedTextColor()
+							: FSlateColor(FLinearColor(0.95f, 0.55f, 0.45f)))
+						.AutoWrapText(true)
+				]
+			+ SVerticalBox::Slot()
+				.AutoHeight()
+				.Padding(FMargin(0.0f, 3.0f, 0.0f, 0.0f))
+				[
+					SNew(SBox)
+						.Visibility(TAttribute<EVisibility>::CreateLambda([this]()
+							{
+								return bPendingChatScriptDetails
+									? EVisibility::Visible
+									: EVisibility::Collapsed;
+							}))
+						[
+							Details
+						]
+				]
+			+ SVerticalBox::Slot()
+				.AutoHeight()
+				.Padding(FMargin(0.0f, 5.0f, 0.0f, 0.0f))
+				[
+					SNew(SHorizontalBox)
+					+ SHorizontalBox::Slot()
+						.AutoWidth()
+						[
+							SNew(SButton)
+								.ButtonStyle(FAppStyle::Get(), "Menu.Button")
+								.ContentPadding(FMargin(6.0f, 2.0f))
+								.OnClicked_Lambda([this]()
+								{
+									bPendingChatScriptDetails = !bPendingChatScriptDetails;
+									ChatRenderedSignature.Reset();
+									RefreshChatHistory();
+									return FReply::Handled();
+								})
+								[
+									SNew(STextBlock)
+										.Text_Lambda([this]()
+										{
+											return FText::FromString(
+												bPendingChatScriptDetails ? TEXT("收起") : TEXT("预览"));
+										})
+										.Font(FAppStyle::Get().GetFontStyle("SmallFont"))
+								]
+						]
+					+ SHorizontalBox::Slot()
+						.AutoWidth()
+						.Padding(FMargin(3.0f, 0.0f, 0.0f, 0.0f))
+						[
+							SNew(SButton)
+								.ButtonStyle(FAppStyle::Get(), "Menu.Button")
+								.ContentPadding(FMargin(6.0f, 2.0f))
+								.IsEnabled_Lambda([this, bValid]()
+								{
+									return bValid && !bPendingChatScriptApplied;
+								})
+								.OnClicked_Lambda([this]()
+								{
+									ApplyPendingChatScript(false);
+									return FReply::Handled();
+								})
+								[
+									SNew(STextBlock)
+										.Text(LOCTEXT("ApplyScript", "应用"))
+										.Font(FAppStyle::Get().GetFontStyle("SmallFont"))
+								]
+						]
+					+ SHorizontalBox::Slot()
+						.AutoWidth()
+						.Padding(FMargin(3.0f, 0.0f, 0.0f, 0.0f))
+						[
+							SNew(SButton)
+								.ButtonStyle(FAppStyle::Get(), "Menu.Button")
+								.ContentPadding(FMargin(6.0f, 2.0f))
+								.OnClicked_Lambda([this]()
+								{
+									ClearPendingChatScript();
+									return FReply::Handled();
+								})
+								[
+									SNew(STextBlock)
+										.Text(LOCTEXT("CancelScript", "取消"))
+										.Font(FAppStyle::Get().GetFontStyle("SmallFont"))
+								]
+						]
+				]
+		];
+}
+
+bool SEpicodeFocusedShell::ApplyPendingChatScript(bool bSkipConfirmation)
+{
+	if (!PendingChatScript.IsValid() || !PendingChatValidation.IsValid())
+	{
+		return false;
+	}
+	bool bValid = false;
+	bool bRequiresConfirmation = false;
+	PendingChatValidation->TryGetBoolField(TEXT("valid"), bValid);
+	PendingChatValidation->TryGetBoolField(
+		TEXT("requiresConfirmation"), bRequiresConfirmation);
+	if (!bValid)
+	{
+		PendingChatScriptStatus = TEXT("脚本无效，无法应用");
+		RefreshChatHistory();
+		return false;
+	}
+
+	if (bRequiresConfirmation && !bSkipConfirmation)
+	{
+		FString Summary;
+		PendingChatScript->TryGetStringField(TEXT("summary"), Summary);
+		const FString Message = FString::Printf(
+			TEXT("该脚本包含破坏性操作：\n%s\n\n确认应用到当前场景？"),
+			*Summary);
+		if (FMessageDialog::Open(
+			EAppMsgType::YesNo,
+			FText::FromString(Message)) != EAppReturnType::Yes)
+		{
+			PendingChatScriptStatus = TEXT("已取消应用");
+			RefreshChatHistory();
+			return false;
+		}
+	}
+
+	TSharedPtr<FJsonObject> Params = MakeShared<FJsonObject>();
+	Params->SetObjectField(TEXT("script"), PendingChatScript);
+	Params->SetBoolField(TEXT("confirmed"), true);
+	Params->SetStringField(TEXT("conversationId"), ChatConversationId);
+	const UEpicodeSettings* Settings = UEpicodeSettings::Get();
+	Params->SetStringField(TEXT("model"),
+		Settings != nullptr ? Settings->AssistantModel : TEXT("deepseek-chat"));
+	Params->SetStringField(TEXT("backend"),
+		ChatBackend.IsValid() ? ChatBackend->GetName() : TEXT("unknown"));
+
+	const FEpicodeCommandResult Result = Model.Execute(TEXT("script.apply"), Params);
+	if (!Result.bSuccess)
+	{
+		PendingChatScriptStatus = TEXT("应用失败");
+		PendingChatScriptError = Result.ErrorMessage.IsEmpty()
+			? Result.ErrorCode
+			: Result.ErrorMessage;
+		RefreshChatHistory();
+		RefreshUi();
+		return false;
+	}
+
+	bPendingChatScriptApplied = true;
+	PendingChatScriptError.Reset();
+	PendingChatApplyResult = Result.Result;
+	int32 AppliedCount = 0;
+	if (Result.Result.IsValid())
+	{
+		Result.Result->TryGetNumberField(TEXT("affectedCount"), AppliedCount);
+	}
+	PendingChatScriptStatus = FString::Printf(
+		TEXT("已应用，影响 %d 个实体；Ctrl+Z 可整体撤销"), AppliedCount);
+
+	const TArray<TSharedPtr<FJsonValue>>* Affected = nullptr;
+	if (Result.Result.IsValid()
+		&& Result.Result->TryGetArrayField(TEXT("affected"), Affected)
+		&& Affected != nullptr && Affected->Num() > 0)
+	{
+		FGuid FirstId;
+		if ((*Affected)[0].IsValid()
+			&& FGuid::Parse((*Affected)[0]->AsString(), FirstId))
+		{
+			SelectEntity(FirstId, false);
+		}
+	}
+	RefreshUi();
+	RefreshChatHistory();
+	return true;
+}
+
+void SEpicodeFocusedShell::ClearPendingChatScript()
+{
+	PendingChatScript.Reset();
+	PendingChatValidation.Reset();
+	PendingChatApplyResult.Reset();
+	PendingChatScriptMessageId.Reset();
+	PendingChatScriptStatus.Reset();
+	PendingChatScriptError.Reset();
+	bPendingChatScriptDetails = true;
+	bPendingChatScriptApplied = false;
+	ChatScriptRepairAttempts = 0;
+	RefreshChatHistory();
+}
+
+bool SEpicodeFocusedShell::CaptureChatScriptForSmokeTest()
+{
+	CaptureChatScriptFromLastAssistant();
+	RefreshChatHistory();
+	return PendingChatScript.IsValid();
+}
+
+bool SEpicodeFocusedShell::ApplyPendingChatScriptForSmokeTest()
+{
+	return ApplyPendingChatScript(true);
+}
+
+FString SEpicodeFocusedShell::GetPendingChatScriptSummaryForSmokeTest() const
+{
+	if (PendingChatScript.IsValid())
+	{
+		FString Summary;
+		if (PendingChatScript->TryGetStringField(TEXT("summary"), Summary))
+		{
+			return Summary;
+		}
+	}
+	return FString();
+}
+
+int32 SEpicodeFocusedShell::GetPendingChatScriptOperationCountForSmokeTest() const
+{
+	if (PendingChatScript.IsValid())
+	{
+		const TArray<TSharedPtr<FJsonValue>>* Operations = nullptr;
+		if (PendingChatScript->TryGetArrayField(TEXT("operations"), Operations)
+			&& Operations != nullptr)
+		{
+			return Operations->Num();
+		}
+	}
+	return 0;
 }
 
 FString SEpicodeFocusedShell::GetChatTranscriptForSmokeTest() const
@@ -4719,6 +5393,7 @@ void SEpicodeFocusedShell::NewChat()
 		ChatStream.Reset();
 	}
 	ChatMessages.Reset();
+	ClearPendingChatScript();
 	ChatConversationId = FConversationHistoryStore::NewConversationId();
 	ChatLastUserMessage.Reset();
 	ChatLastError.Reset();
@@ -4736,6 +5411,7 @@ void SEpicodeFocusedShell::ClearChat()
 		ChatStream.Reset();
 	}
 	ChatMessages.Reset();
+	ClearPendingChatScript();
 	ChatLastUserMessage.Reset();
 	ChatLastError.Reset();
 	ChatStatus = TEXT("已清空");
@@ -4771,6 +5447,7 @@ void SEpicodeFocusedShell::DeleteChat()
 	}
 
 	ChatMessages.Reset();
+	ClearPendingChatScript();
 	ChatLastUserMessage.Reset();
 	ChatLastError.Reset();
 	ChatConversationId = FConversationHistoryStore::NewConversationId();

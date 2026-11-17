@@ -356,9 +356,12 @@ SidecarIdleSeconds=300
 - `script.apply`：重新校验后，在一个 `scene.transaction` 中执行；每个 operation 结果写入 `clientId -> entityId` 映射。
 - 预览面板显示：新建实体数量、修改实体及字段、删除实体、资产路径、潜在不可逆操作。
 - 破坏性操作必须二次确认；用户拒绝时不执行。
-- 应用成功后写入 `Saved/Epicode/Chat/audit.jsonl`：时间、会话 ID、模型、后端、用户消息摘要、脚本、结果、耗时、是否确认；不记录密钥。
+- 应用成功或失败后写入 `Saved/Epicode/Script/audit.jsonl`：时间、会话 ID、模型、后端、脚本摘要、operation 数、受影响实体数、结果、错误码、耗时、是否确认；使用 condensed JSON 单行追加，不记录密钥或完整脚本正文。
 - 撤销使用现有编辑器事务；一次 `Ctrl+Z` 恢复整个脚本，而不是逐条恢复。
 - 如果执行中某条失败，事务回滚，已创建实体不残留。
+- 校验实际覆盖：schema 版本、`summary` 长度、operation 数量、clientId 格式/重复/前向引用、方法白名单、实体存在性、transform 有限值与正缩放、灯光类型/锥角、相机 FOV、名称长度、速度范围、资产路径 `/Game/` 前缀与包存在性；删除和 `camera.activate` 自动要求确认。
+- `script.apply` 对每条 operation 解析 `$clientId` 后调用同一命令注册表，子命令使用 `bUndoable=false` 防止逐条事务；整个脚本只包一层事务。
+- 实现位于 `engine/Plugins/EpicodeAssistant/Source/EpicodeAssistant/Public/EpicodeScript.h` 与 `Private/EpicodeScript.cpp`，模块启动时向命令注册表注册 `script.validate`/`script.apply`。
 
 ### D9. 上下文构建要小而准
 
@@ -496,7 +499,7 @@ SidecarIdleSeconds=300
 
 ### 验证证据
 
-- 构建：`engine/Scripts/Build.sh`，`Result: Succeeded`；Shell 插件二进制 sha256 `6f91123f7af545350222bedb996b718c166e6c8d245fb7f4b0a071b72610b1ab`，大小 1267312 bytes；Assistant 插件二进制 sha256 `398fad3b14481503f32a1d3c9d02ee9e0dfe7c5076f387adfb20c5bfb774c079`，大小 230616 bytes。
+- 构建：`engine/Scripts/Build.sh`，`Result: Succeeded`；Shell 插件二进制 sha256 `6f8b2b18c701b2a2284422d82c52c5b292faefadd9b6a7d84a415ce907124b86`，大小 1341224 bytes；Assistant 插件二进制 sha256 `2e42f86d49c72027836fa5975c89bc16681060c92395386930162b25c5cc651c`，大小 386064 bytes。
 - 工作台截图（4.4 面板验收）：`Saved/Screenshots/EditorShellWorkbench.png`（1600x900，sha256 `9f364ac2...fd4b22a`）、折叠布局 `EditorShellCollapsed.png`、菜单 `EditorShellMenu.png`、菜单 popup `EditorShellMenuPopup.png`（137x194）。
 - 菜单实际打开：日志 `FocusedEditor menu smoke: label=场景 open=true`；Slate 主窗口截图不含 popup，使用 `WriteActiveWindowScreenshot` 抓取 137x194 菜单窗口。
 - 场景文件导入：`-EpicodeFocusedEditorSceneImportSmoke=/tmp/epicode-import-test/scene.json` 日志 `FocusedEditor scene import smoke: success=true`，截图 `EditorShellSceneImport.png`（1600x900，`fb3fd5de...b4acd77e`）；场景库出现 `Imported Scene Test`。
@@ -504,9 +507,9 @@ SidecarIdleSeconds=300
 - 资产持久化：首次导入后 `Content/Epicode/Imported` 生成 16 个 `.uasset`（约 932K）；重启后 workbench smoke 资源库仍显示 `cube`（物品）和 `skeletal`（角色）共 2 项，截图即上面的工作台截图。
 - 检查器 smoke：`-EpicodeFocusedEditorInspectorSmoke` 覆盖物品属性（位置、可见性、物理）、灯光强度/衰减、摄像 FOV/活动相机、角色速度/暂停；日志 `prop ... snap=true grid=10.0 ...`、`camera ... active=true`、`character ... speed=true paused=true`、`undo ... restored=true`。截图 `EditorShellInspectorProp.png`（`e834edb5...e9650c7`）、`EditorShellInspectorLight.png`（`b1ece030...475eb2e7`）、`EditorShellInspectorCamera.png`（`1b9d9647...a3e6f918`）、`EditorShellInspectorCharacter.png`（`ee2cc137...504d9203`）。
 - 快捷键：W/E/R/Q/F 均 `handled=true`；Delete 后实体数 4 -> 3，Ctrl+Z 后 3 -> 4；Ctrl+S `handled=true`；无 `EnsureFailed`。
-- 自动化测试：`Scripts/Test.sh` 运行 `Epicode.*` 全部 179 项，`0` 失败，`TEST COMPLETE. EXIT CODE: 0`；新增 `Epicode.EditorShell.Viewport` 验证真实 `SLevelViewport`、对象选择、W/E/R gizmo 模式、数值变换、Delete 后实体数 4 -> 3 和 Ctrl+Z 恢复 4；`Epicode.EditorShell.Scope` 验证 10 个聚焦菜单且环境/地形/植被/蓝图/动画蓝图/Sequencer/PIE/渲染队列/导航/物理约束/分组/材质图入口均不存在；`Epicode.EditorShell.Inspector` 验证四类实体属性、可见性、位置吸附、活动相机、角色速度/暂停和物品物理；`Epicode.EditorShell.LibraryPanel` 验证场景/资产搜索、标签过滤、类型过滤、空结果和手动刷新；`Epicode.EditorShell.SceneImport` 验证不支持 schema 拒绝、首次导入、副本新 ID、库内选中和场景库写入；`Epicode.EditorShell.AssetImportAsync` 验证 `import.submit` 任务提交、`queued` 初始阶段、成功保存资产包并清理实体、取消不新增资产、失败清理实体且资源库计数不变，以及目标冲突取消/覆盖/副本；`Epicode.EditorShell.AssetDelete` 验证显式落点、当前场景引用阻断、已保存场景引用阻断、引用解除后删除文件和索引；`Epicode.Import.PathSafety` 验证根目录外文件、目录穿越、符号链接逃逸、空文件和非支持扩展名；`Epicode.Import.Reuse` 验证 SHA-1 内容和选项复用；`Epicode.Library.Index` 验证重建、JSON schema、Upsert/Load、缺失资产标记、损坏备份和恢复；`Epicode.Assistant.*` 验证历史、上下文预算、密钥、Mock、HTTP/SSE 解析、真实本地 HTTP 流和 Shell 对话降级。
+- 自动化测试：`Scripts/Test.sh` 运行 `Epicode.*` 全部 186 项，`0` 失败，`TEST COMPLETE. EXIT CODE: 0`；新增 `Epicode.EditorShell.Viewport` 验证真实 `SLevelViewport`、对象选择、W/E/R gizmo 模式、数值变换、Delete 后实体数 4 -> 3 和 Ctrl+Z 恢复 4；`Epicode.EditorShell.Scope` 验证 10 个聚焦菜单且环境/地形/植被/蓝图/动画蓝图/Sequencer/PIE/渲染队列/导航/物理约束/分组/材质图入口均不存在；`Epicode.EditorShell.Inspector` 验证四类实体属性、可见性、位置吸附、活动相机、角色速度/暂停和物品物理；`Epicode.EditorShell.LibraryPanel` 验证场景/资产搜索、标签过滤、类型过滤、空结果和手动刷新；`Epicode.EditorShell.SceneImport` 验证不支持 schema 拒绝、首次导入、副本新 ID、库内选中和场景库写入；`Epicode.EditorShell.AssetImportAsync` 验证 `import.submit` 任务提交、`queued` 初始阶段、成功保存资产包并清理实体、取消不新增资产、失败清理实体且资源库计数不变，以及目标冲突取消/覆盖/副本；`Epicode.EditorShell.AssetDelete` 验证显式落点、当前场景引用阻断、已保存场景引用阻断、引用解除后删除文件和索引；`Epicode.Import.PathSafety` 验证根目录外文件、目录穿越、符号链接逃逸、空文件和非支持扩展名；`Epicode.Import.Reuse` 验证 SHA-1 内容和选项复用；`Epicode.Library.Index` 验证重建、JSON schema、Upsert/Load、缺失资产标记、损坏备份和恢复；`Epicode.Assistant.*` 验证历史、上下文预算、密钥、Mock、HTTP/SSE 解析、真实本地 HTTP 流和 Shell 对话降级；`Epicode.Assistant.ScriptFlow` 验证对话脚本卡片、合法脚本应用、非法脚本拒绝、取消和 2 次自动修复后停止；`Epicode.Script.Validate`/`Apply`/`Undo`/`Reference`/`Safety`/`Audit` 验证白名单、资产路径、clientId 映射、一次事务提交、失败回滚、确认、审计单行写入和上限。
 - 助手测试专项：`engine/Saved/Logs/assistant-test.log` 中 `Epicode.Assistant.Chat`、`ContextBudget`、`History`、`HttpParser`、`MockBackend`、`Secrets` 全部 `Result={Success}`；`engine/Saved/Logs/assistant-http-test.log` 中 `Epicode.Assistant.HttpBackend` 为 `Result={Success}`，均退出码 0。
-- 本地库索引：`Saved/Epicode/Library/index.json` 当前 5 个场景条目、0 个资产条目，2047 bytes，sha256 `645c527d90f8a945ed3c95e9ab3da6d6ab7df61c353df3cc133be668abf50c39`；场景列表的搜索、分类、刷新、定位和索引详情显示在工作台截图中。
+- 本地库索引：清理自动化测试场景后，`Saved/Epicode/Library/index.json` 当前 1 个真实场景条目（Downtown West）、0 个资产条目，464 bytes，sha256 `6f42c9136836aaea9db442808caa79b3eec36852f9e5a974163b34cc4b730c1f`；测试生成的 `Render Cancel Test`、`Render Timeout Test`、`Studio Panel Test`、`Responsiveness Test` 场景已从 `Saved/Epicode/Scenes` 删除。
 - 布局恢复：把 `layout.json` 改为左右折叠、宽度 0.30/0.15 后重启，日志 `layout loaded: left=false right=false leftWidth=0.300 rightWidth=0.150 recent=2 camera=true`；截图 `EditorShellLayoutLoad.png`（`d70d99c7...c25b53f7`）。
 - 视口重试：`-EpicodeFocusedEditorViewportRetrySmoke` 先注入创建失败，1 秒后重试；日志 `viewport retry smoke: ready=true`，截图 `EditorShellViewportRetry.png`（`4d17a5d2...3995e9c1`）。
 - 证据全文：`engine/Saved/Logs/editor-shell-workbench.log`。
@@ -591,7 +594,7 @@ SidecarIdleSeconds=300
 - **范围限制**：`Epicode.EditorShell.Scope` 验证 Content Browser/Blueprint/Sequencer/PIE 快捷键不可用，只有四类实体菜单。
 - **本地库**：`Epicode.Library.Index`、`Import`、`Delete`、`Place` 覆盖扫描、导入、删除、冲突、路径越界和资产引用检查。
 - **对话**：`Epicode.Assistant.Chat`、`BackendFailure`、`ContextBudget` 使用 Mock 后端验证流式、取消、重试、超限裁剪。
-- **脚本**：`Epicode.Script.Validate`、`Apply`、`Undo`、`Reference`、`Safety` 覆盖非法方法、非法路径、循环引用、超限、部分失败回滚和一次撤销。
+- **脚本**：`Epicode.Script.Validate`、`Apply`、`Safety` 已覆盖合法脚本、方法白名单、非法资产路径、JSON 代码围栏提取、`clientId -> entityId` 映射、transform/rename、审计单行写入、执行失败回滚、确认要求和 50 条上限；`Undo`、`Reference`、`Audit` 专项测试在 6.10 继续补齐。
 - **响应性**：`Epicode.EditorShell.Responsiveness` 验证菜单、库刷新、对话流式更新不阻塞 UI 超过 100 ms。
 - **手工验收**：打开聚焦模式，放置/移动/改属性/删除四类实体，导入/删除库条目，对话生成脚本并预览/应用/撤销；记录截图和日志。
 

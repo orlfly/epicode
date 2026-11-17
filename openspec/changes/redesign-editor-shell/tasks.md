@@ -63,16 +63,16 @@
 
 ## 6. 编辑脚本与 AI 应用闭环
 
-- [ ] 6.1 定义编辑脚本 schema：`schemaVersion`、`summary`、`requiresConfirmation`、`operations`、`clientId`、`method`、`params`
-- [ ] 6.2 实现 `script.validate` 命令：版本、数量、方法白名单、参数类型/范围、实体存在性、`$clientId` 引用、资产路径和权限校验
-- [ ] 6.3 实现 `script.apply` 命令：单事务执行、`clientId -> entityId` 映射、部分失败回滚、一次撤销、结果摘要
-- [ ] 6.4 实现脚本白名单和限制：24 个允许方法、最多 50 operations/100 实体、禁止嵌套事务/导入/渲染/系统/导演/沙盒/控制台/Python/Lua/文件/网络
-- [ ] 6.5 实现脚本预览：新建/修改/删除实体、字段差异、资产路径、影响数量、警告、视口高亮
-- [ ] 6.6 实现确认和拒绝：删除/批量删除/覆盖实体/修改活动相机二次确认；取消不改场景
-- [ ] 6.7 实现生成失败和修复：非法 JSON、schema 错误、校验错误显示；最多 `MaxRepairAttempts` 次自动修复；耗尽后停止
-- [ ] 6.8 实现审计：`Saved/Epicode/Script/audit.jsonl` 记录时间、脚本摘要、operation 数、受影响实体、结果、错误码、耗时；写入失败只返回警告
-- [ ] 6.9 实现对话面板的“预览/应用/取消”交互，应用后刷新视口、对象列表和检查器
-- [ ] 6.10 编写 `Epicode.Script.Validate`、`Apply`、`Undo`、`Reference`、`Safety`、`Audit` 自动化测试
+- [x] 6.1 定义编辑脚本 schema：`schemaVersion`、`summary`、`requiresConfirmation`、`operations`、`clientId`、`method`、`params`；`FEpicodeScriptService` 只接受 schema 1，`summary` 最多 200 字符，`operations` 1–50 条，`clientId` 仅允许字母/数字/`_`/`-` 且最多 64 字符
+- [x] 6.2 实现 `script.validate` 命令：版本、数量、方法白名单、参数类型/范围、实体存在性、`$clientId` 引用、资产路径和权限校验；返回规范化脚本、错误、警告和操作预览，非法或前向引用被拒绝
+- [x] 6.3 实现 `script.apply` 命令：单事务执行、`clientId -> entityId` 映射、部分失败回滚、一次撤销、结果摘要；执行前重新校验，失败恢复执行前文档并取消事务，成功提交事务并返回 `clientIds`/`affected`/`auditPath`
+- [x] 6.4 实现脚本白名单和限制：24 个允许方法、最多 50 operations/100 实体，禁止嵌套事务/导入/渲染/系统/导演/沙盒/控制台/Python/Lua/文件/网络；白名单之外的方法在 `script.validate` 阶段直接报 `METHOD_NOT_ALLOWED`
+- [x] 6.5 实现脚本预览：新建/修改/删除实体、字段差异、资产路径、影响数量、警告、视口高亮；对话卡片显示操作预览，已有实体目标提供“定位”按钮并聚焦视口
+- [x] 6.6 实现确认和拒绝：删除/批量删除/覆盖实体/修改活动相机二次确认；取消不改场景；破坏性脚本未确认返回 `CONFIRMATION_REQUIRED`，UI 使用 Yes/No 对话框，拒绝只更新状态
+- [x] 6.7 实现生成失败和修复：非法 JSON、schema 错误、校验错误显示；最多 `MaxRepairAttempts` 次自动修复；耗尽后停止；对话自动发送只含修正要求的修复请求，Mock 测试验证 2 次后停止且场景不变
+- [x] 6.8 实现审计：`Saved/Epicode/Script/audit.jsonl` 记录时间、脚本摘要、operation 数、受影响实体、结果、错误码、耗时；使用 condensed JSON 单行写入，写入失败只返回 `auditWarning`
+- [x] 6.9 实现对话面板的“预览/应用/取消”交互，应用后刷新视口、对象列表和检查器；流式完成后自动提取脚本并调用 `script.validate`，应用成功选中首个受影响实体并刷新 `Model`/对象列表/检查器
+- [x] 6.10 编写 `Epicode.Script.Validate`、`Apply`、`Undo`、`Reference`、`Safety`、`Audit` 自动化测试；新增 `Epicode.Assistant.ScriptFlow` 覆盖对话卡片、应用、非法脚本拒绝和取消
 
 ## 7. 兼容、测试与文档
 

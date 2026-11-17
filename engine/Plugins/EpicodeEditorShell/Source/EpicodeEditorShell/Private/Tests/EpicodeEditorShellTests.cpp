@@ -966,4 +966,95 @@ bool FEpicodeAssistantChatTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FEpicodeAssistantScriptFlowTest,
+	"Epicode.Assistant.ScriptFlow",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FEpicodeAssistantScriptFlowTest::RunTest(const FString& Parameters)
+{
+	FScopedEditorShellLayout LayoutGuard;
+	const FString HistoryRoot = FPaths::Combine(
+		FPaths::ProjectSavedDir(),
+		TEXT("Epicode/Tests/AssistantScriptFlow"),
+		FGuid::NewGuid().ToString(EGuidFormats::Digits));
+	FConversationHistoryStore::FScopedRootOverride HistoryGuard(HistoryRoot);
+	IFileManager::Get().DeleteDirectory(*HistoryRoot, false, true);
+	IFileManager::Get().MakeDirectory(*HistoryRoot, true);
+
+	UEpicodeSceneSubsystem* Scene = GetTestScene();
+	if (!Scene || !StartTestScene(Scene, TEXT("Assistant Script Flow")))
+	{
+		AddError(TEXT("scene is required"));
+		return false;
+	}
+
+	TSharedPtr<SEpicodeFocusedShell> Shell = SNew(SEpicodeFocusedShell);
+	TSharedPtr<FMockConversationBackend> Mock = MakeShared<FMockConversationBackend>();
+	Mock->ResponseChunks = {
+		TEXT("已生成脚本：\n```json\n{\"schemaVersion\":1,\"summary\":\"添加脚本灯\","),
+		TEXT("\"operations\":[{\"clientId\":\"lamp\",\"method\":\"light.create\",")
+			TEXT("\"params\":{\"lightType\":\"point\",\"name\":\"Chat Lamp\"}}]}\n```")
+	};
+	Shell->SetAssistantBackendForSmokeTest(Mock);
+	TestTrue(TEXT("script request accepted"),
+		Shell->SendChatMessageForSmokeTest(TEXT("加一盏灯")));
+	for (int32 Poll = 0; Poll < 10; ++Poll)
+	{
+		Shell->PollChatForSmokeTest();
+	}
+
+	TestTrue(TEXT("script captured"), Shell->HasPendingChatScriptForSmokeTest());
+	TestEqual(TEXT("script summary"),
+		Shell->GetPendingChatScriptSummaryForSmokeTest(), FString(TEXT("添加脚本灯")));
+	TestEqual(TEXT("script operation count"),
+		Shell->GetPendingChatScriptOperationCountForSmokeTest(), 1);
+	TestTrue(TEXT("script valid"),
+		Shell->GetPendingChatScriptStatusForSmokeTest().Contains(TEXT("可以应用")));
+
+	const int32 BeforeApply = Scene->GetDocument().Entities.Num();
+	TestTrue(TEXT("script applied"), Shell->ApplyPendingChatScriptForSmokeTest());
+	TestEqual(TEXT("script created entity"),
+		Scene->GetDocument().Entities.Num(), BeforeApply + 1);
+	TestTrue(TEXT("apply status"),
+		Shell->GetPendingChatScriptStatusForSmokeTest().StartsWith(TEXT("已应用")));
+
+	Shell->CancelPendingChatScriptForSmokeTest();
+	TestFalse(TEXT("cancel clears card"), Shell->HasPendingChatScriptForSmokeTest());
+
+	TSharedPtr<FMockConversationBackend> Invalid = MakeShared<FMockConversationBackend>();
+	Invalid->ResponseChunks = {
+		TEXT("```json\n{\"schemaVersion\":1,\"summary\":\"非法脚本\","),
+		TEXT("\"operations\":[{\"method\":\"import.file\",\"params\":{}}]}\n```")
+	};
+	Shell->SetAssistantBackendForSmokeTest(Invalid);
+	TestTrue(TEXT("invalid request accepted"),
+		Shell->SendChatMessageForSmokeTest(TEXT("导入文件")));
+	for (int32 Poll = 0; Poll < 10; ++Poll)
+	{
+		Shell->PollChatForSmokeTest();
+	}
+	TestTrue(TEXT("invalid script captured"), Shell->HasPendingChatScriptForSmokeTest());
+	TestTrue(TEXT("invalid script rejected by validation"),
+		Shell->GetPendingChatScriptStatusForSmokeTest().Contains(TEXT("校验失败")));
+	for (int32 Poll = 0; Poll < 20; ++Poll)
+	{
+		Shell->PollChatForSmokeTest();
+	}
+	TestTrue(TEXT("auto repair stops after max attempts"),
+		Shell->GetPendingChatScriptStatusForSmokeTest().Contains(TEXT("自动修复 2 次后仍失败")));
+	const int32 BeforeInvalid = Scene->GetDocument().Entities.Num();
+	TestFalse(TEXT("invalid script cannot apply"),
+		Shell->ApplyPendingChatScriptForSmokeTest());
+	TestEqual(TEXT("invalid script leaves scene unchanged"),
+		Scene->GetDocument().Entities.Num(), BeforeInvalid);
+
+	Shell->CancelPendingChatScriptForSmokeTest();
+	Shell.Reset();
+	FString CloseError;
+	Scene->CloseScene(true, CloseError);
+	IFileManager::Get().DeleteDirectory(*HistoryRoot, false, true);
+	return true;
+}
+
 #endif

@@ -83,6 +83,8 @@ cd engine
 - 对话后端不可用、请求超时、后端报错或用户停止时，错误只显示在对话面板和状态行，不影响视口、对象编辑、本地库和保存。
 - 当前构建包含 Mock 后端和 OpenAI 兼容 HTTP/SSE 降级：`AssistantBackend=mock` 用于离线演示，`AssistantBackend=openai_compat` 直接调用 DeepSeek `/chat/completions`（需要 Key），默认 `deepseek_sidecar` 在 sidecar 未接入时显示不可用原因。
 - API Key 优先从环境变量 `DEEPSEEK_API_KEY` 读取，其次从 `Saved/Epicode/deepseek.env` 读取；文件中写 `DEEPSEEK_API_KEY=<key>`，权限应为 0600。对话设置对话框只显示掩码，不显示完整密钥。
+- 对话回复中的 JSON 编辑脚本通过 `script.validate` 校验，再通过 `script.apply` 在单个事务内执行；支持 `$clientId` 映射、部分失败回滚、一次撤销和 `Saved/Epicode/Script/audit.jsonl` 审计。删除实体和切换活动相机会自动要求确认。
+- 脚本方法白名单、50 条 operation/100 个实体上限、资产 `/Game/` 路径检查和确认规则见 [Assistant](Assistant.md)。对话面板在流式回复后显示脚本卡片，可预览、定位、应用或取消；应用成功后对象列表、检查器和视口同步刷新。
 - `Q/W/E/R/F/Delete/Ctrl+Z/Ctrl+Shift+Z/Ctrl+Y/Ctrl+S` 快捷键；`Delete` 和 `Ctrl+S` 走 Epicode 命令，不绕过场景文档。
 - 状态栏显示场景、选择、变换模式、库/对话状态、revision 和保存状态。
 - 无场景、空场景、库为空、对话不可用和视口初始化失败均有空状态；视口失败页可点击“重试”，仍失败时使用 `--legacy`。
@@ -933,6 +935,7 @@ Viewer 使用 `Saved/Epicode/viewer-token` 或 `--token`，不占表演者槽位
 ## 13. 相关文档
 
 - [工程 README](../engine/README.md)
+- [Assistant 与编辑脚本](Assistant.md)
 - [Studio 面板](Studio.md)
 - [场景模型](SceneModel.md)
 - [导入](Import.md)

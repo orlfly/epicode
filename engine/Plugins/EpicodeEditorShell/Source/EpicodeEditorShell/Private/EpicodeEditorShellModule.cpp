@@ -3,6 +3,9 @@
 #include "Editor.h"
 #include "EditorModeManager.h"
 #include "Containers/Ticker.h"
+#include "EpicodeCommand.h"
+#include "EpicodeEngineSubsystem.h"
+#include "EpicodeSceneSubsystem.h"
 #include "Framework/Application/SlateApplication.h"
 #include "HAL/FileManager.h"
 #include "HAL/IConsoleManager.h"
@@ -23,6 +26,58 @@ DEFINE_LOG_CATEGORY(LogEpicodeEditorShell);
 
 namespace
 {
+	class FEpicodeFocusedTransactionSink final : public IEpicodeTransactionSink
+	{
+	public:
+		virtual void BeginTransaction(const FString& Description) override
+		{
+			if (GEditor && TransactionIndex == INDEX_NONE)
+			{
+				TransactionIndex = GEditor->BeginTransaction(FText::FromString(Description));
+				if (UEpicodeSceneSubsystem* Scene = UEpicodeSceneSubsystem::GetPrimary())
+				{
+					if (UEpicodeUndoRecord* Record = Scene->GetUndoRecord())
+					{
+						Record->Modify();
+					}
+				}
+			}
+		}
+
+		virtual void CommitTransaction() override
+		{
+			if (GEditor && TransactionIndex != INDEX_NONE)
+			{
+				GEditor->EndTransaction();
+				TransactionIndex = INDEX_NONE;
+			}
+		}
+
+		virtual void CancelTransaction() override
+		{
+			if (GEditor && TransactionIndex != INDEX_NONE)
+			{
+				GEditor->CancelTransaction(TransactionIndex);
+				TransactionIndex = INDEX_NONE;
+				if (UEpicodeSceneSubsystem* Scene = UEpicodeSceneSubsystem::GetPrimary())
+				{
+					Scene->SyncUndoSnapshot();
+				}
+			}
+		}
+
+		virtual void MarkModified(UObject* Object) override
+		{
+			if (Object)
+			{
+				Object->Modify();
+			}
+		}
+
+	private:
+		int32 TransactionIndex = INDEX_NONE;
+	};
+
 	FAutoConsoleCommand GEpicodeFocusedEditorStatusCommand(
 		TEXT("Epicode.FocusedEditor.Status"),
 		TEXT("Logs whether the focused editor shell was requested and created."),
@@ -57,6 +112,17 @@ void FEpicodeEditorShellModule::StartupModule()
 
 void FEpicodeEditorShellModule::ShutdownModule()
 {
+	if (TransactionSink.IsValid())
+	{
+		if (UEpicodeEngineSubsystem* Engine = UEpicodeEngineSubsystem::Get())
+		{
+			if (Engine->GetTransactionSink() == TransactionSink.Get())
+			{
+				Engine->SetTransactionSink(nullptr);
+			}
+		}
+		TransactionSink.Reset();
+	}
 	if (EditorInitializedHandle.IsValid())
 	{
 		FEditorDelegates::OnEditorInitialized.Remove(EditorInitializedHandle);
@@ -156,6 +222,7 @@ void FEpicodeEditorShellModule::HandleEditorInitialized(double Duration)
 	UE_LOG(LogEpicodeEditorShell, Log,
 		TEXT("Editor initialized in %.3f seconds; creating focused shell"), Duration);
 
+	EnsureTransactionSink();
 	if (!TryCreateShellWindow())
 	{
 		// OnEditorInitialized can fire before the Level Editor tab has spawned.
@@ -169,8 +236,25 @@ void FEpicodeEditorShellModule::HandleEditorInitialized(double Duration)
 	}
 }
 
+void FEpicodeEditorShellModule::EnsureTransactionSink()
+{
+	if (TransactionSink.IsValid())
+	{
+		return;
+	}
+	UEpicodeEngineSubsystem* Engine = UEpicodeEngineSubsystem::Get();
+	if (!Engine || Engine->GetTransactionSink() != nullptr)
+	{
+		return;
+	}
+	TransactionSink = MakeShared<FEpicodeFocusedTransactionSink>();
+	Engine->SetTransactionSink(TransactionSink.Get());
+	UE_LOG(LogEpicodeEditorShell, Log, TEXT("Focused editor transaction sink installed"));
+}
+
 bool FEpicodeEditorShellModule::TryCreateShellWindow()
 {
+	EnsureTransactionSink();
 	FLevelEditorModule& LevelEditorModule =
 		FModuleManager::LoadModuleChecked<FLevelEditorModule>(TEXT("LevelEditor"));
 	TSharedPtr<ILevelEditor> LevelEditor = LevelEditorModule.GetFirstLevelEditor();

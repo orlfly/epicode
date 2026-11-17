@@ -6,6 +6,7 @@
 
 class SWindow;
 class SEpicodeFocusedShell;
+class IEpicodeTransactionSink;
 
 DECLARE_LOG_CATEGORY_EXTERN(LogEpicodeEditorShell, Log, All);
 
@@ -37,12 +38,14 @@ private:
 	bool HandleScreenshotTick(float DeltaTime);
 	void HandleShellClosed(const TSharedRef<SWindow>& Window);
 	void HandleEditorPreExit();
+	void EnsureTransactionSink();
 	void FailFocusedStartup(const FString& Reason);
 	static void WriteScreenshot(const FString& FileName);
 	static void WriteActiveWindowScreenshot(const FString& FileName);
 
 	TSharedPtr<SWindow> ShellWindow;
 	TSharedPtr<SEpicodeFocusedShell> ShellWidget;
+	TSharedPtr<IEpicodeTransactionSink> TransactionSink;
 	TWeakPtr<SWindow> StockEditorWindow;
 	FDelegateHandle EditorInitializedHandle;
 	FDelegateHandle EditorPreExitHandle;

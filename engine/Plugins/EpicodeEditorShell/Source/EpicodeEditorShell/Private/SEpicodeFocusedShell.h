@@ -23,6 +23,7 @@ class FDragDropEvent;
 class SWidget;
 class IConversationBackend;
 class IConversationStream;
+class FJsonObject;
 
 enum class EEpicodeImportConflictChoice : uint8
 {
@@ -65,6 +66,13 @@ public:
 	FString GetChatConversationIdForSmokeTest() const { return ChatConversationId; }
 	FString GetChatBackendNameForSmokeTest() const;
 	int32 GetChatMessageCountForSmokeTest() const { return ChatMessages.Num(); }
+	bool HasPendingChatScriptForSmokeTest() const { return PendingChatScript.IsValid(); }
+	bool CaptureChatScriptForSmokeTest();
+	bool ApplyPendingChatScriptForSmokeTest();
+	void CancelPendingChatScriptForSmokeTest() { ClearPendingChatScript(); }
+	FString GetPendingChatScriptSummaryForSmokeTest() const;
+	int32 GetPendingChatScriptOperationCountForSmokeTest() const;
+	FString GetPendingChatScriptStatusForSmokeTest() const { return PendingChatScriptStatus; }
 	bool RetryViewportForSmokeTest();
 	bool ImportSceneFromFileForSmokeTest(
 		const FString& SourcePath, bool bAssignNewId = false);
@@ -219,7 +227,7 @@ private:
 	TSharedPtr<IConversationBackend> CreateConversationBackend(
 		const FString& BackendName) const;
 	FString BuildChatContext() const;
-	bool SendChatMessage(const FString& Message);
+	bool SendChatMessage(const FString& Message, bool bRepairRequest = false);
 	void RetryChat();
 	void StopChat();
 	void PollChatStream(float DeltaSeconds);
@@ -227,6 +235,12 @@ private:
 	void SaveChatHistory();
 	bool LoadChatConversation(const FString& ConversationId);
 	void ShowChatSettings();
+	void CaptureChatScriptFromLastAssistant();
+	TSharedRef<SWidget> BuildPendingScriptCard();
+	bool ApplyPendingChatScript(bool bSkipConfirmation);
+	void ClearPendingChatScript();
+	bool RequestChatScriptRepair(const FString& ErrorSummary);
+	bool CanAutoRepairChatScript() const;
 	void NewChat();
 	void ClearChat();
 	void DeleteChat();
@@ -328,6 +342,9 @@ private:
 	TSharedPtr<IConversationBackend> ChatBackend;
 	TSharedPtr<IConversationStream> ChatStream;
 	TArray<FConversationMessage> ChatMessages;
+	TSharedPtr<FJsonObject> PendingChatScript;
+	TSharedPtr<FJsonObject> PendingChatValidation;
+	TSharedPtr<FJsonObject> PendingChatApplyResult;
 
 	FString ObjectSearch;
 	FString TypeFilter = TEXT("All");
@@ -357,6 +374,9 @@ private:
 	FString ChatLastError;
 	FString ChatBackendStatus;
 	FString ChatRenderedSignature;
+	FString PendingChatScriptMessageId;
+	FString PendingChatScriptStatus;
+	FString PendingChatScriptError;
 	TArray<FString> RecentSceneIds;
 	FVector SavedCameraLocation = FVector::ZeroVector;
 	FRotator SavedCameraRotation = FRotator::ZeroRotator;
@@ -376,4 +396,7 @@ private:
 	bool bInspectorSnap = false;
 	bool bChatInitialized = false;
 	bool bChatStreamFinished = false;
+	bool bPendingChatScriptDetails = true;
+	bool bPendingChatScriptApplied = false;
+	int32 ChatScriptRepairAttempts = 0;
 };
