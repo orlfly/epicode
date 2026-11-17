@@ -28,7 +28,7 @@ flowchart TB
 - `EpicodeControlAPI`：HTTP 服务、JSON-RPC、批量、幂等、鉴权、自定义 WebSocket 服务。
 - `EpicodeStudio`：九个页签，覆盖场景、Outliner、角色、道具、灯光、环境、导入、渲染和 API。
 - `EpicodeEditorShell`：默认聚焦工作台，负责自绘窗口、Epicode 菜单、视口、对象列表/本地库、检查器、对话/脚本卡片、布局持久化和聚焦快捷键；`--legacy` 时只保留 Editor 启动逻辑。
-- `EpicodeAssistant`：对话后端接口、Mock、OpenAI 兼容 HTTP/SSE、上下文、历史、密钥和 `script.validate`/`script.apply` 编辑脚本服务。
+- `EpicodeAssistant`：对话后端接口、Mock、DeepSeek Harness stdio sidecar、OpenAI 兼容 HTTP/SSE、上下文、历史、密钥和 `script.validate`/`script.apply` 编辑脚本服务。
 - `EpicodeRender`：渲染作业、工作进程、MRQ 执行。
 - `EpicodeNetwork`：会话生命周期、角色权限与所有权、场景装载、会话快照、网络状态和后续 UE 复制层。
 - `EpicodeSandbox`：制作包、确定性沙盒世界、固定 tick、随机流、事件日志、检查点和内容摘要。

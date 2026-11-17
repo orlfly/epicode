@@ -3,6 +3,7 @@
 #include "EpicodeAssistantContext.h"
 #include "EpicodeAssistantHistory.h"
 #include "EpicodeAssistantOpenAI.h"
+#include "EpicodeAssistantSidecar.h"
 #include "EpicodeAssistantSecrets.h"
 #include "EpicodeAssistantTypes.h"
 #include "EpicodeSettings.h"
@@ -58,6 +59,85 @@ namespace
 			Stream->Poll(OutEvents);
 		}
 	}
+
+	FString DrainSidecarStream(
+		const TSharedPtr<IConversationStream>& Stream,
+		bool& bOutDone,
+		FString& OutErrorCode,
+		FString& OutErrorMessage,
+		int32 MaxPolls = 600)
+	{
+		FString Text;
+		bOutDone = false;
+		for (int32 Poll = 0; Stream.IsValid() && Poll < MaxPolls; ++Poll)
+		{
+			TArray<FConversationEvent> Events;
+			Stream->Poll(Events);
+			for (const FConversationEvent& Event : Events)
+			{
+				if (Event.Type == EConversationEventType::Delta)
+				{
+					Text += Event.Text;
+				}
+				else if (Event.Type == EConversationEventType::Done)
+				{
+					bOutDone = true;
+				}
+				else if (Event.Type == EConversationEventType::Error
+					|| Event.Type == EConversationEventType::Cancelled)
+				{
+					OutErrorCode = Event.ErrorCode;
+					OutErrorMessage = Event.ErrorMessage;
+					bOutDone = true;
+				}
+			}
+			if (bOutDone || (Stream.IsValid() && Stream->IsDone()))
+			{
+				break;
+			}
+			FPlatformProcess::Sleep(0.01f);
+		}
+		return Text;
+	}
+
+	struct FScopedSidecarTestRoot
+	{
+		FScopedSidecarTestRoot()
+			: Root(FPaths::Combine(
+				FPaths::ProjectSavedDir(),
+				TEXT("Epicode/Tests/Sidecar"),
+				FGuid::NewGuid().ToString(EGuidFormats::Digits)))
+			, KeyFile(FPaths::Combine(Root, TEXT("deepseek.env")))
+		{
+			IFileManager::Get().DeleteDirectory(*Root, false, true);
+			IFileManager::Get().MakeDirectory(*Root, true);
+			FFileHelper::SaveStringToFile(
+				TEXT("DEEPSEEK_API_KEY=test-key-1234567890\n"), *KeyFile);
+		}
+
+		~FScopedSidecarTestRoot()
+		{
+			IFileManager::Get().DeleteDirectory(*Root, false, true);
+		}
+
+		FSidecarBackendConfig MakeConfig() const
+		{
+			FSidecarBackendConfig Config;
+			Config.Command = TEXT("python3");
+			Config.Script = FPaths::ConvertRelativePathToFull(FPaths::Combine(
+				FPaths::ProjectDir(), TEXT("Scripts/Assistant/TestSidecar.py")));
+			Config.ProjectDir = FPaths::ConvertRelativePathToFull(FPaths::ProjectDir());
+			Config.ApiKeyFile = KeyFile;
+			Config.VenvDir = FPaths::Combine(Root, TEXT("venv"));
+			Config.Model = TEXT("test-model");
+			Config.BaseUrl = FString();
+			Config.RequestTimeoutSeconds = 5.0f;
+			return Config;
+		}
+
+		FString Root;
+		FString KeyFile;
+	};
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
@@ -418,6 +498,200 @@ bool FEpicodeAssistantHttpBackendTest::RunTest(const FString& Parameters)
 	FPlatformProcess::TerminateProc(Server, true);
 	FPlatformProcess::WaitForProc(Server);
 	FPlatformProcess::CloseProc(Server);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FEpicodeAssistantSidecarProtocolTest,
+	"Epicode.Assistant.SidecarProtocol",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FEpicodeAssistantSidecarProtocolTest::RunTest(const FString& Parameters)
+{
+	FSidecarJsonLineParser Parser;
+	TArray<FConversationEvent> Events;
+
+	const FString First =
+		TEXT("{\"id\":\"1\",\"event\":\"delta\",\"text\":\"你好\"}\n");
+	const FTCHARToUTF8 FirstUtf8(*First);
+	const int32 Split = FMath::Max(1, FirstUtf8.Length() / 2);
+	Parser.Append(FirstUtf8.Get(), Split);
+	Parser.TakeEvents(TEXT("req-1"), Events);
+	TestEqual(TEXT("partial line emits nothing"), Events.Num(), 0);
+	Parser.Append(FirstUtf8.Get() + Split, FirstUtf8.Length() - Split);
+	Parser.TakeEvents(TEXT("req-1"), Events);
+	TestEqual(TEXT("delta decoded"), Events.Num(), 1);
+	TestEqual(TEXT("delta text"), Events[0].Text, FString(TEXT("你好")));
+	TestEqual(TEXT("delta request id"), Events[0].RequestId, FString(TEXT("req-1")));
+
+	Parser.AppendLine(TEXT("{\"event\":\"delta\",\"text\":\"，世界\"}"));
+	Parser.AppendLine(TEXT("{\"event\":\"done\"}"));
+	Events.Reset();
+	Parser.TakeEvents(TEXT("req-1"), Events);
+	TestEqual(TEXT("second delta"), Events.Num(), 2);
+	TestEqual(TEXT("second delta text"), Events[0].Text, FString(TEXT("，世界")));
+	TestEqual(TEXT("done terminal"), Events[1].Type, EConversationEventType::Done);
+	TestTrue(TEXT("parser done"), Parser.IsDone());
+	TestTrue(TEXT("parser saw output"), Parser.HasOutput());
+
+	FSidecarJsonLineParser ErrorParser;
+	ErrorParser.AppendLine(TEXT("{\"event\":\"error\",\"code\":\"bad_key\",\"message\":\"密钥无效\"}"));
+	Events.Reset();
+	ErrorParser.TakeEvents(TEXT("req-2"), Events);
+	TestEqual(TEXT("error event"), Events.Num(), 1);
+	TestEqual(TEXT("error type"), Events[0].Type, EConversationEventType::Error);
+	TestEqual(TEXT("error code"), Events[0].ErrorCode, FString(TEXT("bad_key")));
+	TestTrue(TEXT("error terminal"), ErrorParser.IsDone());
+
+	FSidecarJsonLineParser CancelParser;
+	CancelParser.AppendLine(TEXT("{\"event\":\"cancelled\"}"));
+	Events.Reset();
+	CancelParser.TakeEvents(TEXT("req-3"), Events);
+	TestTrue(TEXT("cancel terminal"),
+		Events.Num() == 1 && Events[0].Type == EConversationEventType::Cancelled);
+
+	FSidecarJsonLineParser BadParser;
+	BadParser.AppendLine(TEXT("{ not json"));
+	Events.Reset();
+	BadParser.TakeEvents(TEXT("req-4"), Events);
+	TestTrue(TEXT("malformed json reports error"),
+		Events.Num() == 1 && Events[0].Type == EConversationEventType::Error);
+	TestEqual(TEXT("malformed code"), Events[0].ErrorCode, FString(TEXT("bad_json")));
+
+	FSidecarJsonLineParser LongParser;
+	const FString Huge = FString::ChrN(1024 * 1024 + 1, TEXT('x'));
+	LongParser.AppendLine(Huge);
+	Events.Reset();
+	LongParser.TakeEvents(TEXT("req-5"), Events);
+	TestTrue(TEXT("oversized line rejected"),
+		Events.Num() == 1 && Events[0].ErrorCode == TEXT("line_too_long"));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FEpicodeAssistantSidecarBackendTest,
+	"Epicode.Assistant.SidecarBackendFailure",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FEpicodeAssistantSidecarBackendTest::RunTest(const FString& Parameters)
+{
+	FScopedSidecarTestRoot Guard;
+	const FSidecarBackendConfig Config = Guard.MakeConfig();
+	FDeepSeekHarnessSidecarBackend Backend(Config);
+
+	FString Error;
+	TestTrue(TEXT("sidecar available"), Backend.IsAvailable(Error));
+
+	FConversationRequest Request;
+	Request.RequestId = TEXT("sidecar-normal");
+	Request.ConversationId = TEXT("conversation-test");
+	Request.Prompt = TEXT("hello");
+	TSharedPtr<IConversationStream> Stream = Backend.Start(Request, Error);
+	TestTrue(TEXT("stream started"), Stream.IsValid());
+	if (!Stream.IsValid())
+	{
+		AddError(FString::Printf(TEXT("sidecar start failed: %s"), *Error));
+	}
+	bool bDone = false;
+	FString ErrorCode;
+	FString ErrorMessage;
+	const FString Text = DrainSidecarStream(Stream, bDone, ErrorCode, ErrorMessage);
+	TestEqual(TEXT("sidecar text"), Text, FString(TEXT("你好，世界")));
+	TestTrue(TEXT("sidecar done"), bDone);
+	TestTrue(TEXT("sidecar no error"), ErrorCode.IsEmpty());
+
+	// The process is reused for a second request.
+	Request.RequestId = TEXT("sidecar-second");
+	Request.Prompt = TEXT("again");
+	Stream = Backend.Start(Request, Error);
+	TestTrue(TEXT("second stream started"), Stream.IsValid());
+	if (!Stream.IsValid())
+	{
+		AddError(FString::Printf(TEXT("sidecar second start failed: %s"), *Error));
+	}
+	ErrorCode.Reset();
+	ErrorMessage.Reset();
+	const FString SecondText = DrainSidecarStream(Stream, bDone, ErrorCode, ErrorMessage);
+	TestEqual(TEXT("reused sidecar text"), SecondText, FString(TEXT("你好，世界")));
+
+	// Timeout terminates the process and surfaces a terminal error.
+	FSidecarBackendConfig TimeoutConfig = Config;
+	TimeoutConfig.RequestTimeoutSeconds = 0.3f;
+	FDeepSeekHarnessSidecarBackend TimeoutBackend(TimeoutConfig);
+	Request.RequestId = TEXT("sidecar-timeout");
+	Request.Prompt = TEXT("timeout");
+	Stream = TimeoutBackend.Start(Request, Error);
+	TestTrue(TEXT("timeout stream started"), Stream.IsValid());
+	if (!Stream.IsValid())
+	{
+		AddError(FString::Printf(TEXT("sidecar timeout start failed: %s"), *Error));
+	}
+	ErrorCode.Reset();
+	ErrorMessage.Reset();
+	DrainSidecarStream(Stream, bDone, ErrorCode, ErrorMessage, 200);
+	TestEqual(TEXT("timeout code"), ErrorCode, FString(TEXT("timeout")));
+
+	// Crash is reported without affecting the backend object; the next Start
+	// restarts the process.
+	FDeepSeekHarnessSidecarBackend CrashBackend(Config);
+	Request.RequestId = TEXT("sidecar-crash");
+	Request.Prompt = TEXT("crash");
+	Stream = CrashBackend.Start(Request, Error);
+	TestTrue(TEXT("crash stream started"), Stream.IsValid());
+	ErrorCode.Reset();
+	ErrorMessage.Reset();
+	DrainSidecarStream(Stream, bDone, ErrorCode, ErrorMessage);
+	TestEqual(TEXT("crash code"), ErrorCode, FString(TEXT("sidecar_crashed")));
+
+	Request.RequestId = TEXT("sidecar-restart");
+	Request.Prompt = TEXT("hello");
+	Stream = CrashBackend.Start(Request, Error);
+	TestTrue(TEXT("restart stream started"), Stream.IsValid());
+	ErrorCode.Reset();
+	ErrorMessage.Reset();
+	const FString RestartText = DrainSidecarStream(Stream, bDone, ErrorCode, ErrorMessage);
+	TestEqual(TEXT("restart text"), RestartText, FString(TEXT("你好，世界")));
+
+	// Cancel is bounded even when the sidecar cannot answer immediately.
+	FDeepSeekHarnessSidecarBackend CancelBackend(Config);
+	Request.RequestId = TEXT("sidecar-cancel");
+	Request.Prompt = TEXT("cancel");
+	Stream = CancelBackend.Start(Request, Error);
+	TestTrue(TEXT("cancel stream started"), Stream.IsValid());
+	if (Stream.IsValid())
+	{
+		FPlatformProcess::Sleep(0.1f);
+		Stream->Cancel();
+		ErrorCode.Reset();
+		ErrorMessage.Reset();
+		DrainSidecarStream(Stream, bDone, ErrorCode, ErrorMessage, 300);
+		TestTrue(TEXT("cancel terminal"),
+			ErrorCode == TEXT("cancelled") || !ErrorMessage.IsEmpty() || Stream->IsDone());
+	}
+
+	FSidecarBackendConfig MissingKey = Config;
+	MissingKey.ApiKeyFile = FPaths::Combine(Guard.Root, TEXT("missing.env"));
+	FDeepSeekHarnessSidecarBackend MissingKeyBackend(MissingKey);
+	TestFalse(TEXT("missing key unavailable"), MissingKeyBackend.IsAvailable(Error));
+	TestTrue(TEXT("missing key reason"), Error.Contains(TEXT("API_KEY")));
+
+	const FString EmptyKeyFile = FPaths::Combine(Guard.Root, TEXT("empty.env"));
+	FFileHelper::SaveStringToFile(TEXT("DEEPSEEK_API_KEY=\n"), *EmptyKeyFile);
+	FSidecarBackendConfig EmptyKey = Config;
+	EmptyKey.ApiKeyFile = EmptyKeyFile;
+	FDeepSeekHarnessSidecarBackend EmptyKeyBackend(EmptyKey);
+	TestFalse(TEXT("empty key unavailable"), EmptyKeyBackend.IsAvailable(Error));
+
+	FSidecarBackendConfig HttpMode = Config;
+	HttpMode.Mode = TEXT("http");
+	FDeepSeekHarnessSidecarBackend HttpBackend(HttpMode);
+	TestFalse(TEXT("http mode unavailable"), HttpBackend.IsAvailable(Error));
+	TestTrue(TEXT("http mode reason"), Error.Contains(TEXT("stdio")));
+
+	FSidecarBackendConfig MissingScript = Config;
+	MissingScript.Script = FPaths::Combine(Guard.Root, TEXT("missing.py"));
+	FDeepSeekHarnessSidecarBackend MissingScriptBackend(MissingScript);
+	TestFalse(TEXT("missing script unavailable"), MissingScriptBackend.IsAvailable(Error));
 	return true;
 }
 

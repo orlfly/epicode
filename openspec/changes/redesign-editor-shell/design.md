@@ -248,9 +248,9 @@ public:
 - `FDeepSeekHarnessSidecarBackend`（默认）：Unreal 启动/复用一个 Python sidecar 子进程，通过 `FPlatformProcess` 管道发送 JSONL 请求，读取流式事件；sidecar 崩溃时只影响对话，不影响视口和手工编辑。
 - sidecar 入口：`Scripts/Assistant/DeepSeekHarnessSidecar.py`；依赖：`Scripts/Assistant/requirements.txt`，固定 `deepseek-harness-sdk==<version>`。
 - 隔离环境：优先使用 `Saved/Epicode/Assistant/venv` 或 `Scripts/Assistant/.venv`，不把 venv 提交仓库；安装失败时显示 pip 输出摘要和修复命令。
-- SDK 来源：公开 PyPI 当前查不到 `deepseek-harness-sdk`，需要用户提供私有索引 URL、凭据或 wheel。实现任务在拿到来源前保持待定，不把包二进制提交仓库。
+- SDK 来源：公开 PyPI 包 `deepseek-harness-sdk==0.2.2rc2`（MIT，Python >=3.10），runtime wheel 由 SDK 按平台拉取。依赖固定到 `Scripts/Assistant/requirements.txt`，安装到 `Saved/Epicode/Assistant/venv`，不把包二进制或 venv 提交仓库。
 - sidecar 协议（JSONL）：
-  - Unreal -> sidecar：`{"id":1,"op":"chat","messages":[...],"context":{...}}`、`{"id":1,"op":"cancel"}`、`{"op":"ping"}`、`{"op":"shutdown"}`。
+  - Unreal -> sidecar：`{"id":"1","op":"chat","prompt":"...","context":"...","history":[...]}`、`{"id":"1","op":"cancel"}`、`{"op":"ping"}`、`{"op":"shutdown"}`。
   - sidecar -> Unreal：`{"id":1,"event":"delta","text":"..."}`、`{"event":"tool","name":"...","args":{...}}`、`{"id":1,"event":"done","usage":{...}}`、`{"id":1,"event":"error","code":"...","message":"..."}`。
   - 每行一个 JSON 对象，UTF-8；单行上限 1 MB；未知事件忽略并记录一次警告。
 - 可选 HTTP 模式：sidecar 可监听 `127.0.0.1:8720`，提供 `/health`、`/v1/chat`（SSE）、`/v1/cancel`，使用 `Saved/Epicode/assistant-token`（0600）做本地鉴权。默认仍用 stdio，避免端口冲突和防火墙问题。
@@ -391,7 +391,7 @@ SidecarIdleSeconds=300
 
 ## 聚焦工作台实施结果
 
-2026-11-16 已完成 2.1–2.9（含 2.3 场景文件导入和 2.4 角色/物品本地库）、3.1–3.7 以及 4.1–4.11（本地库索引、扫描、面板、场景导入、资产导入、引用删除、拖放放置、路径安全、冲突处理和测试覆盖）；2026-11-17 继续完成 5.1–5.2、5.7–5.13 的对话接口、模块、Mock 后端、OpenAI 兼容 HTTP/SSE 降级、配置、密钥、上下文、历史和降级。DeepSeek sidecar（5.3–5.6）仍等待 SDK 安装来源；HTTP 降级可直接使用 DeepSeek API。CLI smoke 和正式 automation 测试均已覆盖。实现仍坚持“界面级隐藏、复用命令注册表、保留 `--legacy`”的约束。
+2026-11-16 已完成 2.1–2.9（含 2.3 场景文件导入和 2.4 角色/物品本地库）、3.1–3.7 以及 4.1–4.11（本地库索引、扫描、面板、场景导入、资产导入、引用删除、拖放放置、路径安全、冲突处理和测试覆盖）；2026-11-17 完成 5.1–5.14（对话接口、Mock、OpenAI 兼容 HTTP/SSE、DeepSeek Harness stdio sidecar、可选 HTTP/SSE、配置、密钥、上下文、历史、降级和 sidecar 自动化测试）。SDK 固定为公开 PyPI `deepseek-harness-sdk==0.2.2rc2`，安装到隔离 venv。实现仍坚持“界面级隐藏、复用命令注册表、保留 `--legacy`”的约束。
 
 ### 布局与面板
 
@@ -508,7 +508,7 @@ SidecarIdleSeconds=300
 - 检查器 smoke：`-EpicodeFocusedEditorInspectorSmoke` 覆盖物品属性（位置、可见性、物理）、灯光强度/衰减、摄像 FOV/活动相机、角色速度/暂停；日志 `prop ... snap=true grid=10.0 ...`、`camera ... active=true`、`character ... speed=true paused=true`、`undo ... restored=true`。截图 `EditorShellInspectorProp.png`（`e834edb5...e9650c7`）、`EditorShellInspectorLight.png`（`b1ece030...475eb2e7`）、`EditorShellInspectorCamera.png`（`1b9d9647...a3e6f918`）、`EditorShellInspectorCharacter.png`（`ee2cc137...504d9203`）。
 - 脚本闭环 smoke：`-EpicodeFocusedEditorScriptSmoke -EpicodeFocusedEditorExitSmoke` 在 `DISPLAY=:0` 下创建真实聚焦窗口，Mock 后端流式返回脚本，日志 `captured=true status=校验通过，可以应用`、`applied=true`、`entities=2`、`afterUndoEntities=1`；截图 `EditorShellScriptCard.png`（716418 bytes，`0ff8a992...2f597c58a1`）、`EditorShellScriptApplied.png`（736265 bytes，`c34e9e99...58bc8bf0f0d`）、`EditorShellScriptUndo.png`（716191 bytes，`5d9cfddf...74586588de6b1`）。
 - 快捷键：W/E/R/Q/F 均 `handled=true`；Delete 后实体数 4 -> 3，Ctrl+Z 后 3 -> 4；Ctrl+S `handled=true`；无 `EnsureFailed`。
-- 自动化测试：`Scripts/Test.sh` 运行 `Epicode.*` 全部 187 项，`0` 失败，`TEST COMPLETE. EXIT CODE: 0`；新增 `Epicode.EditorShell.LegacyTabs` 在 legacy 模式验证三个页签 spawner 存在，在 `-EpicodeFocusedEditor` 模式验证不存在（日志 `legacy-tabs.log`/`focused-tabs.log`）；`Epicode.EditorShell.Viewport` 验证真实 `SLevelViewport`、对象选择、W/E/R gizmo 模式、数值变换、Delete 后实体数 4 -> 3 和 Ctrl+Z 恢复 4；`Epicode.EditorShell.Scope` 验证 10 个聚焦菜单且环境/地形/植被/蓝图/动画蓝图/Sequencer/PIE/渲染队列/导航/物理约束/分组/材质图入口均不存在；`Epicode.EditorShell.Inspector` 验证四类实体属性、可见性、位置吸附、活动相机、角色速度/暂停和物品物理；`Epicode.EditorShell.LibraryPanel` 验证场景/资产搜索、标签过滤、类型过滤、空结果和手动刷新；`Epicode.EditorShell.SceneImport` 验证不支持 schema 拒绝、首次导入、副本新 ID、库内选中和场景库写入；`Epicode.EditorShell.AssetImportAsync` 验证 `import.submit` 任务提交、`queued` 初始阶段、成功保存资产包并清理实体、取消不新增资产、失败清理实体且资源库计数不变，以及目标冲突取消/覆盖/副本；`Epicode.EditorShell.AssetDelete` 验证显式落点、当前场景引用阻断、已保存场景引用阻断、引用解除后删除文件和索引；`Epicode.Import.PathSafety` 验证根目录外文件、目录穿越、符号链接逃逸、空文件和非支持扩展名；`Epicode.Import.Reuse` 验证 SHA-1 内容和选项复用；`Epicode.Library.Index` 验证重建、JSON schema、Upsert/Load、缺失资产标记、损坏备份和恢复；`Epicode.Assistant.*` 验证历史、上下文预算、密钥、Mock、HTTP/SSE 解析、真实本地 HTTP 流和 Shell 对话降级；`Epicode.Assistant.ScriptFlow` 验证对话脚本卡片、合法脚本应用、非法脚本拒绝、取消和 2 次自动修复后停止；`Epicode.Script.Validate`/`Apply`/`Undo`/`Reference`/`Safety`/`Audit` 验证白名单、资产路径、clientId 映射、一次事务提交、失败回滚、确认、审计单行写入和上限。
+- 自动化测试：`Scripts/Test.sh` 运行 `Epicode.*` 全部 189 项，`0` 失败，`TEST COMPLETE. EXIT CODE: 0`；新增 `Epicode.EditorShell.LegacyTabs` 在 legacy 模式验证三个页签 spawner 存在，在 `-EpicodeFocusedEditor` 模式验证不存在（日志 `legacy-tabs.log`/`focused-tabs.log`）；`Epicode.EditorShell.Viewport` 验证真实 `SLevelViewport`、对象选择、W/E/R gizmo 模式、数值变换、Delete 后实体数 4 -> 3 和 Ctrl+Z 恢复 4；`Epicode.EditorShell.Scope` 验证 10 个聚焦菜单且环境/地形/植被/蓝图/动画蓝图/Sequencer/PIE/渲染队列/导航/物理约束/分组/材质图入口均不存在；`Epicode.EditorShell.Inspector` 验证四类实体属性、可见性、位置吸附、活动相机、角色速度/暂停和物品物理；`Epicode.EditorShell.LibraryPanel` 验证场景/资产搜索、标签过滤、类型过滤、空结果和手动刷新；`Epicode.EditorShell.SceneImport` 验证不支持 schema 拒绝、首次导入、副本新 ID、库内选中和场景库写入；`Epicode.EditorShell.AssetImportAsync` 验证 `import.submit` 任务提交、`queued` 初始阶段、成功保存资产包并清理实体、取消不新增资产、失败清理实体且资源库计数不变，以及目标冲突取消/覆盖/副本；`Epicode.EditorShell.AssetDelete` 验证显式落点、当前场景引用阻断、已保存场景引用阻断、引用解除后删除文件和索引；`Epicode.Import.PathSafety` 验证根目录外文件、目录穿越、符号链接逃逸、空文件和非支持扩展名；`Epicode.Import.Reuse` 验证 SHA-1 内容和选项复用；`Epicode.Library.Index` 验证重建、JSON schema、Upsert/Load、缺失资产标记、损坏备份和恢复；`Epicode.Assistant.*` 验证历史、上下文预算、密钥、Mock、HTTP/SSE 解析、真实本地 HTTP 流、sidecar JSONL 协议、sidecar 启动/复用/超时/崩溃重启/取消和 Shell 对话降级；`Epicode.Assistant.ScriptFlow` 验证对话脚本卡片、合法脚本应用、非法脚本拒绝、取消和 2 次自动修复后停止；`Epicode.Script.Validate`/`Apply`/`Undo`/`Reference`/`Safety`/`Audit` 验证白名单、资产路径、clientId 映射、一次事务提交、失败回滚、确认、审计单行写入和上限。
 - 助手测试专项：`engine/Saved/Logs/assistant-test.log` 中 `Epicode.Assistant.Chat`、`ContextBudget`、`History`、`HttpParser`、`MockBackend`、`Secrets` 全部 `Result={Success}`；`engine/Saved/Logs/assistant-http-test.log` 中 `Epicode.Assistant.HttpBackend` 为 `Result={Success}`，均退出码 0。
 - 本地库索引：清理自动化测试场景后，`Saved/Epicode/Library/index.json` 当前 1 个真实场景条目（Downtown West）、0 个资产条目，464 bytes，sha256 `0e640130498b6d4349ce6d3fbb18daac4f714f559750ea4b7794202568afb3d2`；测试生成的 `Render Cancel Test`、`Render Timeout Test`、`Studio Panel Test`、`Responsiveness Test` 场景已从 `Saved/Epicode/Scenes` 删除。
 - 布局恢复：把 `layout.json` 改为左右折叠、宽度 0.30/0.15 后重启，日志 `layout loaded: left=false right=false leftWidth=0.300 rightWidth=0.150 recent=2 camera=true`；截图 `EditorShellLayoutLoad.png`（`d70d99c7...c25b53f7`）。
@@ -521,7 +521,7 @@ SidecarIdleSeconds=300
 - 资产导入已使用 `import.submit` 任务和进度卡，但 Interchange 本体仍在服务 Tick 的游戏线程同步执行：进度阶段较粗，取消只对尚未开始的排队任务立即生效，大文件仍可能短暂阻塞界面；真正后台线程导入需要另立任务。
 - 场景文件导入已完成 schema 校验、覆盖/副本/取消和库内选中；导入大文件仍会阻塞界面。
 - 资源库暂无缩略图；标签目前只支持过滤，尚无编辑/批量管理入口。
-- 对话面板已接入接口、Mock 后端、上下文、历史和降级；DeepSeek sidecar/HTTP 真实传输（5.3–5.7）尚未实现，默认后端会显示不可用，设置 `AssistantBackend=mock` 仅用于离线演示。`Epicode.Assistant.SidecarProtocol` 因此尚未编写。
+- 对话面板已接入接口、Mock、OpenAI 兼容 HTTP/SSE、DeepSeek Harness stdio sidecar、可选 HTTP/SSE、上下文、历史和降级；真实模型调用仍需要用户配置 `DEEPSEEK_API_KEY` 和网络。自动化和 fixture 不验证模型输出质量。
 - 视口重试已实现并做故障注入测试；真实驱动失败仍只能由用户手动点击重试。
 
 ## Data Model
@@ -601,7 +601,7 @@ SidecarIdleSeconds=300
 
 ## Resolved Decisions
 
-- **DeepSeek Harness SDK**：已确认是 Python 包 `deepseek-harness-sdk`，通过 Python sidecar 接入；SDK 版本、私有索引/凭据或 wheel 在实现任务 5.3 中固定。公开 PyPI 当前查不到该包，拿到安装来源前不开始真实后端集成。
+- **DeepSeek Harness SDK**：已确认是公开 PyPI 包 `deepseek-harness-sdk==0.2.2rc2`，通过隔离 Python sidecar 接入；venv 位于 `Saved/Epicode/Assistant/venv`，不提交仓库。
 - **聚焦外壳**：先做自定义 `SWindow` + `SEditorViewport` + `FLevelEditorViewportClient` PoC；失败回退全屏 nomad 页签，再失败才考虑 `-game` 自定义 gizmo。PoC 是任务 1.x 的硬门槛，不是产品可选项。
 - **缩略图**：首版本地库使用文字列表和可选缩略图字段，不阻塞导入/删除/放置；缩略图生成作为后续增强。
 - **场景导入**：首版只支持 Epicode `scene.json`。`.umap` 需要额外的关卡包装和引用迁移，放到后续变更，不在本变更伪装成已支持。

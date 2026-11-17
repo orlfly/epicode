@@ -48,18 +48,18 @@
 
 - [x] 5.1 定义 `IConversationBackend`、`FConversationRequest`、`FConversationEvent`、`IConversationStream`，把 UI 与 SDK/网络解耦
 - [x] 5.2 实现 `EpicodeAssistant` 模块和右侧对话面板：消息历史、输入框、发送/停止/重试/清空/新建会话/设置
-- [ ] 5.3 确认 `deepseek-harness-sdk` 的 Python 版本、SDK 版本、许可证和安装来源（私有索引/凭据/wheel）；创建 `Scripts/Assistant/requirements.txt` 并固定版本，公开 PyPI 当前查不到该包，未拿到来源前保持待定
-- [ ] 5.4 实现 `Scripts/Assistant/DeepSeekHarnessSidecar.py`：隔离 venv、SDK import、JSONL stdio 协议、流式 delta/done/error、cancel、ping、shutdown、空闲退出和 stderr 诊断
-- [ ] 5.5 实现 `FDeepSeekHarnessSidecarBackend`：启动/复用 sidecar、`FPlatformProcess` 管道读写、请求 ID 路由、超时、崩溃重启、取消和不可用降级
-- [ ] 5.6 实现可选 HTTP 模式：sidecar `/health`、`/v1/chat` SSE、`/v1/cancel`，本地 token 鉴权，默认仍用 stdio
+- [x] 5.3 确认 `deepseek-harness-sdk` 为公开 PyPI 包 `0.2.2rc2`，MIT 许可证，要求 Python >=3.10；创建 `Scripts/Assistant/requirements.txt` 固定版本，并新增 `Scripts/Assistant/SetupSidecar.sh` 创建隔离 venv
+- [x] 5.4 实现 `Scripts/Assistant/DeepSeekHarnessSidecar.py`：隔离 venv re-exec、SDK import、JSONL stdio 协议、流式 delta/done/error、cancel、ping、shutdown、空闲退出、stderr 诊断和真实 SDK 错误路径
+- [x] 5.5 实现 `FDeepSeekHarnessSidecarBackend`：启动/复用 sidecar、独立 stdin/stdout/stderr 管道、请求 ID 路由、超时、崩溃重启、取消、stderr 诊断和不可用降级
+- [x] 5.6 实现可选 HTTP 模式：sidecar `/health`、`/v1/chat` SSE、`/v1/cancel`，本地 `assistant-token` 0600 鉴权，只监听 127.0.0.1，默认仍用 stdio
 - [x] 5.7 实现 `FOpenAICompatibleChatBackend` 作为 DeepSeek API 兼容/降级后端，复用同一接口（HTTP/SSE，DeepSeek `/chat/completions`）
 - [x] 5.8 实现 `FMockConversationBackend`，支持脚本化流式回复、超时、取消、崩溃和错误，供自动化测试
 - [x] 5.9 实现配置：`bEnabled`、`Backend`、`SidecarCommand`、`SidecarScript`、`SidecarMode`、`Endpoint`、`Model`、`ApiKeyFile`、`MaxContextTokens`、`MaxRepairAttempts`、`RequestTimeoutSeconds`、`SidecarIdleSeconds`
 - [x] 5.10 实现密钥读取和掩码：环境变量/`Saved/Epicode/deepseek.env` 0600，sidecar 不把密钥写入命令行，日志/审计/错误脱敏
 - [x] 5.11 实现上下文构建：场景摘要、当前选择、本地库摘要、命令 schema、约束、最近对话；超限本地裁剪
 - [x] 5.12 实现对话历史持久化：`Saved/Epicode/Chat/<conversationId>.json`，新建/清空/删除/恢复
-- [x] 5.13 实现后端不可用/超时/禁用/sidecar 崩溃的降级：对话面板显示错误，手工编辑、视口、库和保存不受影响（真实 sidecar 崩溃路径待 5.3–5.6；Mock 崩溃/超时已覆盖）
-- [ ] 5.14 编写 `Epicode.Assistant.Chat`、`SidecarProtocol`、`BackendFailure`、`ContextBudget`、`Secrets` 自动化测试（Chat/ContextBudget/Secrets/MockBackend/HttpParser/HttpBackend 已通过；SidecarProtocol 待 5.3–5.6）
+- [x] 5.13 实现后端不可用/超时/禁用/sidecar 崩溃的降级：对话面板显示错误，手工编辑、视口、库和保存不受影响；Mock 与真实 sidecar 崩溃/超时路径均已覆盖
+- [x] 5.14 编写 `Epicode.Assistant.Chat`、`SidecarProtocol`、`BackendFailure`、`ContextBudget`、`Secrets` 自动化测试；`Epicode.Assistant.SidecarProtocol` 和 `SidecarBackendFailure` 通过
 
 ## 6. 编辑脚本与 AI 应用闭环
 
@@ -78,17 +78,17 @@
 
 - [x] 7.1 把 `Scripts/Editor.sh` 默认切到聚焦模式；`--legacy` 保留旧版完整 Editor 和九页签 Studio；`--help`/无效参数退出码 2 已验证
 - [x] 7.2 验证 `--legacy` 下现有 `Epicode Studio`、`Epicode Multiplayer`、`Epicode Director Workspace` 仍可打开，聚焦模式不注册这些页签；`Epicode.EditorShell.LegacyTabs` 在 legacy 模式验证三个 spawner 存在、`-EpicodeFocusedEditor` 模式验证不存在，日志 `Saved/Logs/legacy-tabs.log`/`focused-tabs.log`
-- [x] 7.3 运行 `Epicode.EditorShell.Viewport`、`Scope`、`Responsiveness`、`Epicode.Library.*`、`Epicode.Assistant.*`、`Epicode.Script.*`、`LegacyTabs` 测试并记录结果；全量 187 项通过、0 失败；`Editor.sh --help`/无效参数、focused/legacy 启动日志已记录
+- [x] 7.3 运行 `Epicode.EditorShell.Viewport`、`Scope`、`Responsiveness`、`Epicode.Library.*`、`Epicode.Assistant.*`、`Epicode.Script.*`、`LegacyTabs` 测试并记录结果；全量 189 项通过、0 失败；`Editor.sh --help`/无效参数、focused/legacy 启动日志已记录
 - [x] 7.4 执行聚焦模式验收：workbench/inspector smoke 覆盖四类实体、移动、属性、删除和撤销；资产导入/删除/放置 smoke 覆盖本地库；`ScriptSmoke` 在真实窗口完成对话脚本、预览、应用和撤销。截图 `EditorShellScriptCard.png`、`EditorShellScriptApplied.png`、`EditorShellScriptUndo.png`，日志 `Saved/Logs/script-smoke.log` 与 `editor-shell-workbench.log`
 - [x] 7.5 编写 `Docs/EditorShell.md`：启动、布局、菜单、快捷键、四类实体、范围限制、`--legacy`、故障排查；已链接到 `Docs/Usage.md` 和 `Docs/Studio.md`
 - [x] 7.6 编写 `Docs/Assistant.md`：DeepSeek 配置、密钥、上下文、脚本 schema、白名单、预览/应用/撤销、审计、隐私
 - [x] 7.7 更新 `Docs/Studio.md`、`Docs/Usage.md`、`Docs/Architecture.md`、`Docs/Operations.md`、`Docs/Acceptance.md`，标注聚焦模式为默认、旧 Studio 为 legacy，并补 2026-11-17 聚焦工作台验收记录
 - [x] 7.8 评估旧 `production-ui` 九页签规格：保留为 legacy 行为，不归档、不删除；结论写入 `design.md` Resolved Decisions，后续由独立变更归档
-- [x] 7.9 运行 `openspec validate --all --strict` 和项目自动化测试，确认无规格/文档矛盾；11 个规格/变更通过，全量 187 项测试通过，`git diff --check` 无错误
+- [x] 7.9 运行 `openspec validate --all --strict` 和项目自动化测试，确认无规格/文档矛盾；11 个规格/变更通过，全量 189 项测试通过，`git diff --check` 无错误
 
 ## Workflow follow-up
 
 - 先完成 1.1–1.5 PoC，再决定是否继续 2.x；PoC 失败时回到设计 D1 方案 2/3，不直接扩大实现。
-- DeepSeek Harness SDK 已确认是 Python 包 `deepseek-harness-sdk`；版本、许可证和安装来源必须在 5.3 中固定，未拿到私有索引/凭据/wheel 前不开始真实后端集成，也不把 SDK 或 venv 提交到仓库。
+- DeepSeek Harness SDK 已确认是公开 PyPI 包 `deepseek-harness-sdk==0.2.2rc2`，MIT 许可证；venv 位于 `engine/Saved/Epicode/Assistant/venv`，不提交仓库。
 - 所有 AI 生成的修改必须先经过 `script.validate` 和用户确认，再调用 `script.apply`。
 - 评审通过后再归档旧 `production-ui` 需求；本变更不删除旧 Studio 代码。

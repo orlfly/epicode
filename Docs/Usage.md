@@ -81,7 +81,8 @@ cd engine
 - 菜单中每个资产还有“删除文件”项：删除前检查当前场景和所有已保存场景的网格引用，命中时列出场景/实体并拒绝删除；无引用时删除 `.uasset` 并同步移除索引。
 - 右侧对话面板支持输入消息、`Ctrl+Enter` 发送、流式显示、停止、重发上一条、清空、新建会话和删除当前会话；消息历史保存到 `Saved/Epicode/Chat/`，启动时恢复最近会话。
 - 对话后端不可用、请求超时、后端报错或用户停止时，错误只显示在对话面板和状态行，不影响视口、对象编辑、本地库和保存。
-- 当前构建包含 Mock 后端和 OpenAI 兼容 HTTP/SSE 降级：`AssistantBackend=mock` 用于离线演示，`AssistantBackend=openai_compat` 直接调用 DeepSeek `/chat/completions`（需要 Key），默认 `deepseek_sidecar` 在 sidecar 未接入时显示不可用原因。
+- 当前构建包含 Mock、DeepSeek Harness sidecar 和 OpenAI 兼容 HTTP/SSE 后端：`AssistantBackend=mock` 用于离线演示，`AssistantBackend=deepseek_sidecar` 使用隔离 venv 中的 `deepseek-harness-sdk`，`AssistantBackend=openai_compat` 直接调用 DeepSeek `/chat/completions`（需要 Key）。
+- sidecar 首次使用前运行 `cd engine && ./Scripts/Assistant/SetupSidecar.sh`；venv 位于 `engine/Saved/Epicode/Assistant/venv`，不提交仓库。国内网络可设置 `PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple`。
 - API Key 优先从环境变量 `DEEPSEEK_API_KEY` 读取，其次从 `Saved/Epicode/deepseek.env` 读取；文件中写 `DEEPSEEK_API_KEY=<key>`，权限应为 0600。对话设置对话框只显示掩码，不显示完整密钥。
 - 对话回复中的 JSON 编辑脚本通过 `script.validate` 校验，再通过 `script.apply` 在单个事务内执行；支持 `$clientId` 映射、部分失败回滚、一次撤销和 `Saved/Epicode/Script/audit.jsonl` 审计。删除实体和切换活动相机会自动要求确认。
 - 脚本方法白名单、50 条 operation/100 个实体上限、资产 `/Game/` 路径检查和确认规则见 [Assistant](Assistant.md)。对话面板在流式回复后显示脚本卡片，可预览、定位、应用或取消；应用成功后对象列表、检查器和视口同步刷新。
@@ -89,7 +90,7 @@ cd engine
 - 状态栏显示场景、选择、变换模式、库/对话状态、revision 和保存状态。
 - 无场景、空场景、库为空、对话不可用和视口初始化失败均有空状态；视口失败页可点击“重试”，仍失败时使用 `--legacy`。
 
-本地库缩略图仍在任务 4.x 完善；DeepSeek sidecar/HTTP 真实传输仍在任务 5.3–5.7。详细验收见 `engine/Saved/Logs/editor-shell-workbench.log`。
+本地库缩略图仍在任务 4.x 完善；DeepSeek sidecar 真实模型调用需要用户配置 Key 和网络。详细验收见 `engine/Saved/Logs/editor-shell-workbench.log`。
 
 需要旧版完整 Editor 和九页签 Studio 时使用：
 

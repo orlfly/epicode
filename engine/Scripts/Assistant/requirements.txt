@@ -1,0 +1,10 @@
+# Epicode assistant sidecar dependencies.
+#
+# deepseek-harness-sdk is MIT licensed and published on PyPI:
+# https://pypi.org/project/deepseek-harness-sdk/
+#
+# The SDK pulls the matching platform runtime wheel
+# deepseek-harness-runtime-bin==0.2.2rc2 and pydantic>=2.12,<3.
+# Keep this pin aligned with Docs/Assistant.md and the UE Python requirement
+# declared by EpicodeAssistant.uplugin.
+deepseek-harness-sdk==0.2.2rc2

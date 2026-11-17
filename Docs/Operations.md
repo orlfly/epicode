@@ -47,6 +47,15 @@ cd engine
 
 Editor 目标还包含 `EpicodeEditorShell`（默认聚焦工作台）和 `EpicodeAssistant`（对话与编辑脚本）；`EpicodeStudio` 在默认模式只提供事务 sink，九页签 UI 仅在 `--legacy` 注册。
 
+首次使用 DeepSeek 对话前安装 sidecar 依赖：
+
+```bash
+cd engine
+./Scripts/Assistant/SetupSidecar.sh
+```
+
+venv 位于 `Saved/Epicode/Assistant/venv`，不提交仓库。`SetupSidecar.sh --force` 可重建；`PIP_INDEX_URL` 可指定镜像。
+
 当前安装的 Unreal Engine 发行版不支持独立 `Server` 构建目标，`TARGET=EpicodeVideoServer` 会返回 `Server targets are not currently supported from this engine distribution.`。多人服务器改用 `UnrealEditor-Cmd -server` 启动，详见 `Docs/Multiplayer.md`。
 
 ## 启动
@@ -57,7 +66,7 @@ Editor 目标还包含 `EpicodeEditorShell`（默认聚焦工作台）和 `Epico
 ./Scripts/Editor.sh
 ```
 
-默认是聚焦工作台（菜单、视口、对象列表/本地库、对话占位、状态栏）。布局、折叠状态、最近场景和视口镜头保存在 `Saved/Epicode/Editor/layout.json`；删除该文件即可恢复默认布局。要打开九页签 Studio，使用 `./Scripts/Editor.sh --legacy`，然后打开 `Window > Epicode Studio`。
+默认是聚焦工作台（菜单、视口、对象列表/本地库、DeepSeek sidecar 对话、状态栏）。布局、折叠状态、最近场景和视口镜头保存在 `Saved/Epicode/Editor/layout.json`；删除该文件即可恢复默认布局。要打开九页签 Studio，使用 `./Scripts/Editor.sh --legacy`，然后打开 `Window > Epicode Studio`。
 
 无界面：
 

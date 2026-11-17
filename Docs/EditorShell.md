@@ -97,7 +97,7 @@ cd engine
 ## 7. 对话与脚本
 
 - 对话历史：`Saved/Epicode/Chat/<conversationId>.json`，启动恢复最近会话。
-- 后端：`mock`（离线）、`openai_compat`（DeepSeek HTTP/SSE）、`deepseek_sidecar`（未接入时显示不可用）。
+- 后端：`mock`（离线）、`deepseek_sidecar`（隔离 venv + DeepSeek Harness SDK）、`openai_compat`（DeepSeek HTTP/SSE）。
 - API Key：`DEEPSEEK_API_KEY` 环境变量或 `Saved/Epicode/deepseek.env`，UI 只显示掩码。
 - 回复中的 JSON 脚本自动经过 `script.validate`，助手消息下显示脚本卡片：操作数、影响实体、摘要、错误、警告、动作/字段/资产预览、破坏性标记和“定位”。
 - “应用”在单个事务中执行；破坏性操作弹 Yes/No；失败回滚，成功刷新对象列表/检查器/视口并选中首个受影响实体。一次 `Ctrl+Z` 撤销整个脚本。
@@ -122,7 +122,7 @@ cd engine
 | 现象 | 处理 |
 | --- | --- |
 | 视口初始化失败 | 点击空状态“重试”；仍失败用 `--legacy`，并查看 `Saved/Logs/editor-shell-workbench.log` |
-| 对话不可用 | 检查 `AssistantBackend`、`DEEPSEEK_API_KEY`/`deepseek.env` 和网络；`mock` 可离线验证 UI |
+| 对话不可用 | 检查 `AssistantBackend`、`DEEPSEEK_API_KEY`/`deepseek.env` 和网络；sidecar 先运行 `Scripts/Assistant/SetupSidecar.sh`；`mock` 可离线验证 UI |
 | 脚本被拒绝 | 查看卡片错误；确认方法在白名单、资产在 `/Game/` 且存在、`clientId` 只引用更早操作 |
 | 脚本需要确认 | 删除、`camera.activate` 等破坏性操作必须确认；取消不会修改场景 |
 | 应用失败但场景未变 | 事务已回滚；查看 `Saved/Epicode/Script/audit.jsonl` 的 `errorCode` |

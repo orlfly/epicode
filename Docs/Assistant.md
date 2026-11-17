@@ -4,7 +4,7 @@ Epicode 的对话面板把自然语言转换为受控 JSON 编辑脚本。模型
 
 ## 1. 后端配置
 
-配置位于 `DefaultEpicode.ini` 的 `[/Script/EpicodeAssistant.EpicodeAssistantSettings]`，也可在本地 `Saved/Config/LinuxEditor/Epicode/EpicodeEditor.ini` 覆盖。
+配置位于 `DefaultEpicode.ini` 的 `[/Script/EpicodeCore.EpicodeSettings]`，也可在本地 `Saved/Config/LinuxEditor/Epicode/EpicodeEditor.ini` 覆盖。
 
 | 字段 | 默认值 | 说明 |
 | --- | --- | --- |
@@ -13,23 +13,77 @@ Epicode 的对话面板把自然语言转换为受控 JSON 编辑脚本。模型
 | `AssistantEndpoint` | `https://api.deepseek.com` | OpenAI 兼容端点 |
 | `AssistantModel` | `deepseek-chat` | 请求模型名 |
 | `AssistantMaxContextChars` | `12000` | 本地上下文裁剪上限 |
-| `AssistantMaxRepairAttempts` | `2` | 预留；自动修复尚未接入 |
+| `AssistantMaxRepairAttempts` | `2` | 非法 JSON/校验失败时的自动修复次数 |
 | `AssistantRequestTimeoutSeconds` | `60` | 流式请求超时 |
-| `AssistantSidecarScript` | `Scripts/Assistant/DeepSeekHarnessSidecar.py` | sidecar 入口；当前未接入 |
-| `AssistantSidecarIdleSeconds` | `300` | 预留空闲退出 |
+| `AssistantSidecarCommand` | `python3` | sidecar 启动命令 |
+| `AssistantSidecarScript` | `Scripts/Assistant/DeepSeekHarnessSidecar.py` | sidecar 入口 |
+| `AssistantSidecarMode` | `stdio` | `stdio` 或可选 `http` |
+| `AssistantSidecarIdleSeconds` | `300` | stdio 空闲退出秒数 |
 
 当前可用后端：
 
 - `mock`：确定性的离线流式回复，用于 UI 演示和自动化测试。
 - `openai_compat`：直接调用 DeepSeek `/chat/completions`，使用 HTTP/SSE 流式解析。
-- `deepseek_sidecar`：默认值；Python SDK/sidecar 尚未接入，因此会显示不可用原因。任务 5.3–5.6 负责补齐。
+- `deepseek_sidecar`：默认值。编辑器启动 `Scripts/Assistant/DeepSeekHarnessSidecar.py`，通过 stdio JSONL 或可选本地 HTTP/SSE 与 `deepseek-harness-sdk` 通信。SDK 和 runtime 位于隔离 venv，不加载到 UE 进程。
+
+### 1.1 Sidecar 安装
+
+SDK 使用公开 PyPI 包 `deepseek-harness-sdk==0.2.2rc2`，许可证 MIT：
+
+```text
+https://pypi.org/project/deepseek-harness-sdk/
+```
+
+安装到项目隔离 venv：
+
+```bash
+cd engine
+./Scripts/Assistant/SetupSidecar.sh
+```
+
+国内网络可指定镜像：
+
+```bash
+PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple \
+  ./Scripts/Assistant/SetupSidecar.sh
+```
+
+venv 位于 `engine/Saved/Epicode/Assistant/venv`，已被 git 忽略。`DeepSeekHarnessSidecar.py` 启动时会自动 re-exec 到该 venv；缺少 SDK 时返回 `sdk_missing` 并给出修复命令。
+
+### 1.2 Sidecar 协议
+
+默认 stdio 模式，每行一个 JSON 对象，UTF-8，单行上限 1 MiB：
+
+```text
+in : {"id":"1","op":"chat","prompt":"...","context":"...","history":[...]}
+in : {"id":"1","op":"cancel"}
+in : {"op":"ping"}
+in : {"op":"shutdown"}
+out: {"id":"1","event":"delta","text":"..."}
+out: {"id":"1","event":"done","finishReason":"..."}
+out: {"id":"1","event":"cancelled"}
+out: {"id":"1","event":"error","code":"...","message":"..."}
+out: {"event":"pong"}
+out: {"event":"idle_exit"}
+```
+
+C++ 侧 `FDeepSeekHarnessSidecarBackend` 负责进程启动/复用、请求 ID 路由、超时、取消、崩溃重启和 stderr 诊断。stdio 模式下 sidecar 空闲 `AssistantSidecarIdleSeconds` 后退出，下一次请求自动重启。
+
+可选 HTTP 模式：
+
+```bash
+cd engine
+python3 Scripts/Assistant/DeepSeekHarnessSidecar.py --mode http --http-port 8720
+```
+
+提供 `GET /health`、`POST /v1/chat`（SSE）和 `POST /v1/cancel`，只监听 `127.0.0.1`。本地 token 位于 `engine/Saved/Epicode/assistant-token`（0600），请求使用 `Authorization: Bearer <token>` 或 `X-Epicode-Token`。编辑器默认仍使用 stdio。
 
 ## 2. API Key
 
 优先级：
 
 1. 环境变量 `DEEPSEEK_API_KEY`。
-2. `Saved/Epicode/deepseek.env` 中的 `DEEPSEEK_API_KEY=<key>`。
+2. `engine/Saved/Epicode/deepseek.env` 中的 `DEEPSEEK_API_KEY=<key>`。
 
 Key 文件模板首次读取时创建，权限应保持 `0600`。UI 只显示前四/后四掩码；日志、审计和错误信息不记录完整 Key。Key 不应写入仓库、对话历史或脚本。
 
@@ -120,7 +174,7 @@ Key 文件模板首次读取时创建，权限应保持 `0600`。UI 只显示前
 
 ## 6. 审计
 
-审计写入 `Saved/Epicode/Script/audit.jsonl`，每行一个 condensed JSON 对象：
+审计写入 `engine/Saved/Epicode/Script/audit.jsonl`，每行一个 condensed JSON 对象：
 
 ```json
 {"timestamp":"...","conversationId":"...","model":"deepseek-chat","backend":"openai_compat","summary":"...","operationCount":3,"affectedCount":3,"success":true,"confirmed":true,"errorCode":"","durationMs":2.1}
@@ -138,5 +192,6 @@ Key 文件模板首次读取时创建，权限应保持 `0600`。UI 只显示前
 
 ## 8. 当前限制
 
-- DeepSeek Python sidecar 尚未接入；使用 `openai_compat` 或 `mock`。
+- 真实模型调用需要用户提供 `DEEPSEEK_API_KEY` 和可用网络；自动化测试使用 `TestSidecar.py` 和 `mock`，不验证模型输出质量。
+- sidecar HTTP 模式已提供，但编辑器 C++ 客户端默认仍走 stdio；HTTP 模式当前用于本地诊断/外部客户端。
 - 脚本只允许 24 个方法和已有实体/资产，不支持层级重挂接、环境、渲染、网络和导入操作。

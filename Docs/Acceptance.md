@@ -146,11 +146,13 @@ cd engine
 ./Scripts/Test.sh
 ```
 
-结果：187 项 `Success`，0 项 `Fail`，`TEST COMPLETE. EXIT CODE: 0`，日志 `Saved/Logs/test.log`。新增覆盖：
+结果：189 项 `Success`，0 项 `Fail`，`TEST COMPLETE. EXIT CODE: 0`，日志 `Saved/Logs/test.log`。新增覆盖：
 
 - `Epicode.EditorShell.LegacyTabs`：legacy 模式三个页签 spawner 存在；`-EpicodeFocusedEditor` 模式不存在。
 - `Epicode.Script.Validate`/`Apply`/`Undo`/`Reference`/`Safety`/`Audit`：白名单、资产路径、clientId 映射、单事务提交、一次撤销、失败回滚、确认和审计。
 - `Epicode.Assistant.ScriptFlow`：对话脚本卡片、合法脚本应用、非法脚本拒绝、取消、2 次自动修复后停止。
+- `Epicode.Assistant.SidecarProtocol`：JSONL 分帧、UTF-8 跨块、delta/done/error/cancelled、非法 JSON 和 1 MiB 行上限。
+- `Epicode.Assistant.SidecarBackendFailure`：sidecar 启动/复用、超时、崩溃重启、取消、缺失/空 Key、缺失脚本和 HTTP 模式降级。
 
 ### 聚焦模式烟测
 
@@ -190,6 +192,7 @@ FocusedEditor exit smoke: stock editor restored, requesting exit
 
 ### 已知限制
 
-- DeepSeek Python sidecar（5.3–5.6）尚未接入；`openai_compat` 和 `mock` 可用。
+- DeepSeek Harness sidecar 已接入；真实模型调用需要用户配置 `DEEPSEEK_API_KEY` 和网络。自动化使用 `TestSidecar.py` 和 Mock，不验证模型输出质量。
+- sidecar 可选 HTTP 模式只监听 `127.0.0.1`，编辑器 C++ 客户端默认仍走 stdio；HTTP 模式用于本地诊断和外部客户端。
 - 视觉烟测使用 Mock 脚本，不验证真实模型输出质量；真实 Key/网络由用户配置。
 - 无 GPU 的自动化测试只验证 UI 逻辑和事务，不比较像素；本轮脚本烟测已用 `DISPLAY=:0` 抓取窗口截图。

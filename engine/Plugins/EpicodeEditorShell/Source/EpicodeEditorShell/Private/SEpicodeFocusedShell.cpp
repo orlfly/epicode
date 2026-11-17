@@ -10,6 +10,7 @@
 #include "EpicodeAssistantContext.h"
 #include "EpicodeAssistantHistory.h"
 #include "EpicodeAssistantOpenAI.h"
+#include "EpicodeAssistantSidecar.h"
 #include "EpicodeAssistantSecrets.h"
 #include "EpicodeAssistantTypes.h"
 #include "EpicodeEntityActors.h"
@@ -1349,7 +1350,7 @@ void SEpicodeFocusedShell::BuildHelpMenu(FMenuBuilder& MenuBuilder)
 		MenuText(TEXT("关于聚焦工作台")), FText::GetEmpty(), FSlateIcon(),
 		FUIAction(FExecuteAction::CreateLambda([this]()
 		{
-			AddChatLine(TEXT("关于"), TEXT("Epicode 聚焦工作台 PoC。命令、场景和视口复用 EpicodeCore；对话与资产导入尚未接入。"));
+			AddChatLine(TEXT("关于"), TEXT("Epicode 聚焦工作台。命令、场景和视口复用 EpicodeCore；对话支持 DeepSeek sidecar、HTTP 和 Mock 后端。"));
 		})));
 }
 
@@ -4279,8 +4280,35 @@ TSharedPtr<IConversationBackend> SEpicodeFocusedShell::CreateConversationBackend
 	}
 	if (Lower.Contains(TEXT("sidecar")) || Lower.Contains(TEXT("deepseek")))
 	{
-		return MakeShared<FUnavailableConversationBackend>(
-			TEXT("DeepSeek sidecar/HTTP 传输尚未接入（任务 5.3–5.5）；可设置 AssistantBackend=mock 进行离线演示"));
+		FSidecarBackendConfig Config;
+		Config.Command = Settings != nullptr
+			? Settings->AssistantSidecarCommand
+			: FString(TEXT("python3"));
+		Config.Script = Settings != nullptr
+			? Settings->AssistantSidecarScript
+			: FString(TEXT("Scripts/Assistant/DeepSeekHarnessSidecar.py"));
+		Config.ProjectDir = FPaths::ConvertRelativePathToFull(FPaths::ProjectDir());
+		Config.Mode = Settings != nullptr
+			? Settings->AssistantSidecarMode
+			: FString(TEXT("stdio"));
+		Config.Model = Settings != nullptr
+			? Settings->AssistantModel
+			: FString(TEXT("deepseek-chat"));
+		Config.BaseUrl = Settings != nullptr
+			? Settings->AssistantEndpoint
+			: FString(TEXT("https://api.deepseek.com"));
+		Config.ApiKeyFile = FConversationSecretStore::GetDefaultKeyFilePath();
+		Config.DshHome = FPaths::Combine(
+			FPaths::ProjectSavedDir(), TEXT("Epicode/Assistant/dsh-home"));
+		Config.VenvDir = FPaths::Combine(
+			FPaths::ProjectSavedDir(), TEXT("Epicode/Assistant/venv"));
+		Config.IdleSeconds = Settings != nullptr
+			? Settings->AssistantSidecarIdleSeconds
+			: 300;
+		Config.RequestTimeoutSeconds = Settings != nullptr
+			? static_cast<float>(Settings->AssistantRequestTimeoutSeconds)
+			: 120.0f;
+		return MakeShared<FDeepSeekHarnessSidecarBackend>(MoveTemp(Config));
 	}
 	return MakeShared<FUnavailableConversationBackend>(
 		FString::Printf(TEXT("未知对话后端：%s"), *BackendName));
@@ -4657,12 +4685,14 @@ void SEpicodeFocusedShell::ShowChatSettings()
 		: FString::Printf(TEXT("API Key：未配置（%s）"), *KeyError);
 
 	const FString Message = FString::Printf(
-		TEXT("后端：%s\n模型：%s\n端点：%s\n上下文上限：%d 字符\n修复尝试：%d\n请求超时：%d 秒\n\n%s\nKey 文件：%s\n环境变量：%s\n\n")
-		TEXT("当前构建尚未包含 DeepSeek 网络传输；可设置 AssistantBackend=mock 做离线演示。\n")
+		TEXT("后端：%s\n模型：%s\n端点：%s\nsidecar 模式：%s\nsidecar 空闲退出：%d 秒\n上下文上限：%d 字符\n修复尝试：%d\n请求超时：%d 秒\n\n%s\nKey 文件：%s\n环境变量：%s\n\n")
+		TEXT("deepseek_sidecar 使用 Scripts/Assistant/SetupSidecar.sh 创建的隔离 venv；openai_compat 直接走 HTTP/SSE。\n")
 		TEXT("Key 只从环境变量或本地文件读取，不会写入仓库或日志。"),
 		Settings != nullptr ? *Settings->AssistantBackend : TEXT("deepseek_sidecar"),
 		Settings != nullptr ? *Settings->AssistantModel : TEXT("deepseek-chat"),
 		Settings != nullptr ? *Settings->AssistantEndpoint : TEXT("https://api.deepseek.com"),
+		Settings != nullptr ? *Settings->AssistantSidecarMode : TEXT("stdio"),
+		Settings != nullptr ? Settings->AssistantSidecarIdleSeconds : 300,
 		Settings != nullptr ? Settings->AssistantMaxContextChars : 12000,
 		Settings != nullptr ? Settings->AssistantMaxRepairAttempts : 2,
 		Settings != nullptr ? Settings->AssistantRequestTimeoutSeconds : 60,
