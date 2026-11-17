@@ -1,14 +1,14 @@
 # Fab 街景场景候选
 
 日期：2026-11-13（UTC）
-用途：为 Epicode 的街景拍摄筛选 UE 场景资源；以下均为候选，尚未在项目中实际导入。
+用途：为 Epicode 的街景拍摄筛选 UE 场景资源；Downtown West 已在项目中落地（见“项目内落地”），其余候选尚未导入。
 价格：Fab 中国区返回的 Personal 价格（Professional 另计），括号内为对应 USD 标价；实际以下单页为准。London 的最低 ¥333.43 是 UEFN Reference only，不适用于 UE。
 链接：`https://www.fab.com/listings/{uid}`。
 
 ## 结论
 
 - **综合首选：London - British Environment**。真实伦敦 7 Dials 街区的摄影测量场景，1,920+ 资产、8,500 m²、日/日落/阴雨三种光照，4K 级贴图（官方称 mostly 4K），UE 5.4-5.8，4.9/5（10 条评分），¥1,333.92（$199.99，Personal；Professional ¥2,667.92 / $399.99）。注意：列表最低的 ¥333.43 是 UEFN Reference only，不是 UE 授权。这是本次候选中官方展示场景最完整的一组，但仍需在 UE 5.8 中验证导入、材质和性能。
-- **零预算先试：Downtown West Modular Pack + City Street Props**。前者是免费完整街区（350+ 网格、约 10GB、4K、含展示地图），后者是免费 305 件 Nanite 街道道具，可补细节。Downtown West 官方最高标到 UE 5.6，进 5.8 前需做一次迁移验证。
+- **零预算先试：Downtown West Modular Pack + City Street Props**。前者是免费完整街区（350+ 网格、约 11.8GB、4K、含展示地图），后者是免费 305 件 Nanite 街道道具，可补细节。Downtown West 官方最高标到 UE 5.6，进 5.8 前需做一次迁移验证。
 - **中国街景：Chinese Streets**。中式夜市/密集街巷，91 个静态网格、展示关卡、模块化建筑蓝图、Lumen，UE 5.1-5.8，¥533.53（$79.99）。规模不大，但在本次候选中式题材最直接。
 - **自定义美式街区：City Streets - Modular Pack**。1,039 个网格、20 栋预制楼、内外景一体、Lumen/Nanite，UE 5.3-5.8，¥867.03（$129.99）。适合需要大量自定义机位和室内外连拍的项目。
 - **夜景/雨夜：Rainy Neon Streets**。真实雨夜霓虹街道，132 网格、42 个模块化件、雨 VFX、可绘制湿润/水洼材质，UE 5.1-5.8，5.0/5，¥466.83（$69.99）。雨夜材质与灯光卖点最匹配电影感夜景；如果要更重的霓虹城市，选 Cyberpunk Night Street。
@@ -43,7 +43,7 @@ License 价格备注：表内为 Personal。Professional 另计：London ¥2,667
 
 | 场景 | 价格（授权） | UE | 评分 | 规模/关键规格 | 适合 | 注意 |
 | --- | --- | --- | --- | --- | --- | --- |
-| **Downtown West Modular Pack**（PurePolygons） | 免费 | 4.26-5.6 | 4.54（148） | 350+ 网格、约 10GB、550+ 张 4K 贴图、250+ 材质/实例、展示地图、10+ 蓝图、Ray Tracing 演示 | 免费完整美式 downtown，模块化街道/建筑/道具，口碑样本大 | Personal/Professional 均免费；官方最高 UE 5.6；5.8 使用前需迁移验证；高画质设置对硬件要求高 |
+| **Downtown West Modular Pack**（PurePolygons） | 免费 | 4.26-5.6 | 4.54（148） | 350+ 网格、约 11.8GB、550+ 张 4K 贴图、250+ 材质/实例、展示地图、10+ 蓝图、Ray Tracing 演示 | 免费完整美式 downtown，模块化街道/建筑/道具，口碑样本大 | Personal/Professional 均免费；官方最高 UE 5.6；5.8 使用前需迁移验证；高画质设置对硬件要求高 |
 | **City Street Props**（Dekogon） | 免费 | 5.0-5.8 | 4.56（16） | 305 个网格、Nanite、分层材质、Lumen 演示场景 | 免费街道道具库，补招牌/咖啡店/容器/城市家具 | Personal/Professional 均免费；只是道具，不是完整街区 |
 | **Modular Urban houses**（Replex） | 免费 | 5.0-5.4 | 5.0（4） | 41 网格、10 栋预制住宅、可平铺墙面、Lumen、2K 贴图 | 免费街边住宅立面，快速搭街区 | CC-BY，需署名；官方最高 UE 5.4；资产量小 |
 | **City Sample**（Epic Games） | 免费 | 5.0-5.8 | 4.17（157） | Matrix Awakens 完整城市、建筑/车辆/人群、Nanite/Lumen/World Partition、PCG 示例 | 官方标到 5.8 的完整城市参考，街道规模最大 | Personal/Professional 均免费；体积和硬件要求极高，属于完整项目而非轻量资产包；不建议直接并入 Epicode |
@@ -64,7 +64,7 @@ License 价格备注：表内为 Personal。Professional 另计：London ¥2,667
 
 - 明确标到 **UE 5.8** 的候选：London、Modern City Downtown、City Streets Modular、Amsterdam、Paris、Downtown City Pack、European City Streets、Chinese Streets、Cyberpunk Night Street、Rainy Neon Streets、Back Alley、Modular Street Pack、Industrial Slums、Cairo、Feudal Japan。
 - **未标到 5.8**：Tokyo Street Part 2（5.6）、Downtown Alley（5.7）、Downtown West（5.6）、Modular Urban houses（5.4）。UE 5.8 通常能打开旧版本资产，但材质/插件/蓝图可能需要迁移修复，不能当作“已验证”。
-- **体积**：Downtown West 约 10GB；City Core Paris 约 7.5GB；City Streets Modular 网格多、加载重；Chinese Streets <1GB，适合快速迭代。
+- **体积**：Downtown West 约 11.8GB；City Core Paris 约 7.5GB；City Streets Modular 网格多、加载重；Chinese Streets <1GB，适合快速迭代。
 - **硬件**：City Streets Modular 官方建议 12 核 CPU / RTX 2080；London 官方称 120 FPS，测试环境是 RTX 4080 / Ryzen 9 / 64GB / SSD；Downtown West 高画质设置面向高配 PC。
 
 ## 方法与证据
@@ -77,7 +77,16 @@ License 价格备注：表内为 Personal。Professional 另计：London ¥2,667
 - 机器可读明细：`engine/Docs/street_scene_candidates.json`（含 uid、Personal/Professional 授权价、评分、UE 版本、标签、技术细节摘要）。
 - 校验记录：`engine/Docs/StreetSceneValidation.md`（搜索覆盖、详情一致性、表格比对、链接、缩略图、manifest 阻塞）。
 - 价格与授权：Fab 每个 listing 可有多档 license，本次按 Personal 记录；Professional 与 UEFN 等档位写入 JSON 的 `license_prices_cny`。不要把最低价直接当成 UE 商用授权价。
-- 下载探针：`asset-formats` 与 `download-info` 目前无需登录即可访问；Downtown West 的 JSON manifest 列出 1,252 个文件、11,263 个 chunk，路径在 `Content/Downtown_West/...`，说明它是完整项目而非单一道具。但 `ManifestFileVersion` 为字符串、尺寸字段带尾随零，现有 `parse_manifest.py` 的二进制 magic 检查会失败，chunk 路径编码也未解码，因此本次未下载；City Street Props 同样返回 JSON manifest（751 个文件、5,870 个 chunk），`parse_manifest.py` 也在同一个 magic 断言处失败。
+- 下载结果：Downtown West 已下载到 `~/Documents/EpicVault/DowntownWest/data/`。Fab 的 JSON manifest 用 `engine/Scripts/Fab/decode_json_manifest.py` 解码后，11,263/11,263 个 chunk 下载成功，1,252/1,252 个文件 SHA1 全部通过，`data` 约 11.81GB；`SHA256SUMS` 已生成。
+
+### 项目内落地（2026-11-14 UTC）
+
+- 资源包已复制到 `engine/Content/Downtown_West`（12GB、1,252 文件），源目录保留；`rsync --dry-run --checksum` 校验无差异。
+- 为不改动原包引用，使用 UE Python `EditorAssetLibrary.duplicate_asset` 把 `Demo_Environment` 复制为 `/Game/Epicode/Scenes/DowntownWest`，文件 `engine/Content/Epicode/Scenes/DowntownWest.umap`（51,820,973 bytes）。复制后的地图仍引用 `Content/Downtown_West` 下的原资产，因此原包不能删除。
+- 用 `UnrealEditor-Cmd ... /Game/Epicode/Scenes/DowntownWest -game -nullrhi ... -ExecCmds=quit` 加载验证：退出码 0，`LogLoad: Took 1.928296 seconds to LoadMap(/Game/Epicode/Scenes/DowntownWest)`，无地图加载错误。
+- 通过控制 API 创建 Epicode 场景 `Downtown West`，`sceneId=01A1DAC5-004D-7F5D-B11E-A02B53A2EED2`，`levelPath=/Game/Epicode/Scenes/DowntownWest`；`scene.save` 写入 `engine/Saved/Epicode/Scenes/01A1DAC5-004D-7F5D-B11E-A02B53A2EED2/scene.json`。`scene.close` 后 `scene.open` 重开成功，`scene.runtime.get` 返回同一 `levelPath`。
+- 场景默认相机已对齐地图内 `CineCameraActor`：位置 `(-71.846, 1130.894, 124.521)`，旋转 `(pitch=-6.200, yaw=-112.994, roll=0.000)`；Viewer runtime 的 `cameraIds` 和 `defaultCameraId` 均指向该相机。
+- 说明：UE 地图资产在 `Content/Epicode/Scenes`，Epicode 场景文档按引擎设计存放在 `Saved/Epicode/Scenes`，不在 `Content`。两者通过 `levelPath` 关联。
 
 ### 视觉抽查
 
@@ -96,6 +105,6 @@ License 价格备注：表内为 Personal。Professional 另计：London ¥2,667
 
 可以复用现有 Fab 下载链路：
 
-1. 免费包：Downtown West / City Street Props 的 `asset-formats` 与 `download-info` 可公开访问，但返回 JSON manifest；现有 `fetch_asset.py` 只适配二进制 manifest，chunk 路径编码尚未解码，暂未下载。需先适配 JSON manifest，再做 SHA1 校验和 UE 5.8 加载。
+1. 免费包：Downtown West 已下载并校验完成；City Street Props 的 JSON manifest 也可用 `decode_json_manifest.py` 解码，按同一流程下载。
 2. 付费包：由你先在 Fab 完成登录和购买（支付环节不经过我），之后我接手下载、SHA1 校验、导入和 AssetRegistry 加载检查。
 3. 若目标是“尽快拍”，优先 London；若目标是“零成本先搭一条街”，优先 Downtown West + City Street Props。

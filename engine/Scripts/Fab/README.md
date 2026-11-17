@@ -10,6 +10,22 @@
 python3 parse_manifest.py <input.manifest> <output.json>
 ```
 
+## decode_json_manifest.py
+
+Fab 新接口对部分资产返回 JSON manifest。它的二进制字段不是普通整数，而是把每个字节写成 3 位十进制数字再拼接，例如：
+
+- `uint32` → 12 位（4 组）
+- `uint64` → 24 位（8 组）
+- SHA1 → 60 位（20 组）
+
+本脚本把这些字段还原成 `fetch_asset.py` 需要的整数 JSON：
+
+```bash
+python3 decode_json_manifest.py <input.json> <output.json>
+```
+
+已验证方式：用 Lyra 5.0 的新 JSON manifest 解码后，与旧二进制 manifest 的 9,544 个文件、3,870 个 chunk、文件 SHA1、chunk hash/group/size 逐字段比对，0 差异。
+
 ## fetch_asset.py
 
 按 manifest 下载所有 chunk、解包并按 `Offset/Size` 拼接文件，最后逐个校验 SHA1。
@@ -48,5 +64,6 @@ FAB_LOAD_CHECK total=236 failed=0
 
 ## 注意
 
-- 这些脚本不处理 Epic 登录和令牌，只消费已经取得的签名 manifest URL 或二进制 manifest。
+- 这些脚本不处理 Epic 登录和令牌，只消费已经取得的签名 manifest URL 或二进制 manifest；已验证免费包的 `asset-formats` 与 `download-info` 可匿名访问。
+- 新 Fab JSON manifest 先跑 `decode_json_manifest.py`，再交给 `fetch_asset.py`。
 - 不要把访问令牌写入脚本或日志。

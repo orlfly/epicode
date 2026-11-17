@@ -1,0 +1,13 @@
+# Unreal build and runtime artifacts
+engine/Binaries/
+engine/Intermediate/
+engine/DerivedDataCache/
+engine/Saved/
+engine/Content/
+engine/Plugins/*/Binaries/
+engine/Plugins/*/Intermediate/
+
+# Local tooling and Python caches
+.jcode/
+__pycache__/
+*.pyc

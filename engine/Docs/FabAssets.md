@@ -11,6 +11,7 @@
 | Akuma（JonCG，Fab 免费） | MetaHuman 角色，`.mhpkg` | 5.8 | 781 MB | `~/Documents/EpicVault/Akuma/mhc_akuma.mhpkg` |
 | FREE Farm Paths and Stone Walls Kit（Lauraa，Fab 免费） | 完整 UE 项目，模块化场景 | 5.8 | 177 MB | `~/Documents/EpicVault/FarmPaths_UE58/data` |
 | Lyra Starter Game（Epic，Fab 免费） | 完整 UE 项目，含角色/地图/武器 | 5.0 | 3.9 GB | `~/Documents/EpicVault/Lyra_5.0/data` |
+| Downtown West Modular Pack（PurePolygons，Fab 免费） | 完整 UE Content 街区（`Content/Downtown_West`） | 4.26-5.6 | 11.81 GB | `~/Documents/EpicVault/DowntownWest/data` |
 
 Farm Paths 已复制到本项目：
 
@@ -25,6 +26,7 @@ engine/Content/PK_Equestrian/
 - Akuma：`unzip -t` 通过，无错误；包含 `MHC_Akuma.uasset`、`Unpacked/Akuma/**` 等。
 - Farm Paths：177/177 个 chunk 下载成功，238 个文件 SHA1 与 Fab manifest 全部一致（`bad 0`）。
 - Lyra：9544 个文件 SHA1 与 Fab manifest 全部一致。
+- Downtown West：Fab 新 JSON manifest 用 `Scripts/Fab/decode_json_manifest.py` 解码；11,263/11,263 个 chunk 下载成功，1,252/1,252 个文件 SHA1 与 manifest 全部一致（missing 0、bad 0），`data` 11,810,016,165 bytes；`~/Documents/EpicVault/DowntownWest/SHA256SUMS` 已生成 1,252 行。
 - 启动 `UnrealEditor-Cmd EpicodeVideo.uproject -game -nullrhi` 检查，日志无资产加载错误（仅编辑器既有警告）。
 - 强制 AssetRegistry 扫描：`NumCachedFiles 8983, NumUncachedFiles 236`，无 `Error:`，说明 236 个新增文件已被发现并索引。
 - 无头 Python 实际加载检查：`FAB_LOAD_CHECK total=236 failed=0`，即 `/Game/PK_Equestrian` 下全部 236 个资产都能被 UE 5.8 成功加载（脚本 `Scripts/Fab/check_assets.py`）。
@@ -42,6 +44,24 @@ engine/Content/PK_Equestrian/
 - `Maps`：展示关卡
 
 可直接拖入 Epicode 场景，或参考 `Maps` 中的摆放。
+
+### Downtown West
+
+资源只包含 UE Content，不含 `.uproject`：
+
+```text
+~/Documents/EpicVault/DowntownWest/data/Content/Downtown_West/
+├── Assets/
+├── Maps/
+├── Materials/
+├── Textures/
+└── VFX/
+```
+
+在 UE 5.8 中使用有两种方式：
+
+1. 复制 `Content/Downtown_West` 到 `engine/Content/Downtown_West`，重新扫描 AssetRegistry；首次打开会触发 4.26/5.6 → 5.8 的资产版本转换，建议先备份。
+2. 新建临时 UE 5.8 项目，把 `Content/Downtown_West` 复制进去，确认材质/贴图/地图能加载，再只迁移需要的子目录到 Epicode。
 
 ### Akuma
 
