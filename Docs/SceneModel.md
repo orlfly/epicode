@@ -141,7 +141,7 @@ Saved/Epicode/Scenes/<sceneId>/scene.json
 - `scene.new`：创建默认场景；执行 `scene.save` 后进入场景库。
 - `scene.open`：按场景 ID 从场景库打开；未保存的当前场景会先被替换，需自行保存。
 - `scene.switch`：当前场景有未保存修改时拒绝切换；先 `scene.save` 再切换。
-- `scene.save`：写入 `<sceneId>/scene.json`；渲染工作进程会据此生成临时关卡。若 `levelPath` 指向存在的 UE 地图，工作进程先加载该地图作为基础关卡，再叠加场景实体，不直接修改用户地图。
+- `scene.save`：写入 `<sceneId>/scene.json`；渲染工作进程会据此生成临时关卡。若 `levelPath` 指向存在的 UE 地图，工作进程先加载该地图作为基础关卡，再叠加场景实体，不直接修改用户地图。聚焦编辑器打开场景时同样加载该基础关卡，并将视口定位到活动相机。
 - `scene.saveAs`：复制到新名称/路径，更新场景 ID。
 - `scene.delete`：从库中移除，不删除外部引用的资产。
 - `scene.list`：返回场景摘要（ID、名称、路径、修改时间）。

@@ -133,6 +133,7 @@ public:
 	int32 GetFilteredSceneCountForSmokeTest() const;
 	FString GetFirstSceneNameForSmokeTest() const;
 	TArray<FString> GetSceneDisplayNamesForSmokeTest() const;
+	bool OpenSceneByIdForSmokeTest(const FString& InSceneId);
 	void SetAssetSearchForSmokeTest(const FString& InSearch);
 	void SetAssetTagFilterForSmokeTest(const FString& InTag);
 	void SetAssetTypeFilterForSmokeTest(const FString& InType);
@@ -251,7 +252,9 @@ private:
 	void SaveScene();
 	void SaveSceneAs();
 	void CloseScene();
-	void OpenSceneById(FString InSceneId);
+	bool OpenSceneById(FString InSceneId);
+	bool LoadSceneBaseLevel(const FString& InSceneId, FString& OutError);
+	void FocusViewportOnActiveCamera();
 	void DeleteSceneById(FString InSceneId);
 	void ImportSceneFromFile();
 	bool ImportSceneFile(
@@ -379,6 +382,7 @@ private:
 	FString PendingChatScriptStatus;
 	FString PendingChatScriptError;
 	TArray<FString> RecentSceneIds;
+	FString ActiveBaseLevelPackage;
 	FVector SavedCameraLocation = FVector::ZeroVector;
 	FRotator SavedCameraRotation = FRotator::ZeroRotator;
 	float LeftPanelWidth = 0.22f;

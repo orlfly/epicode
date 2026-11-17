@@ -174,6 +174,11 @@ void FEpicodeEditorShellModule::ShutdownModule()
 		FTSTicker::GetCoreTicker().RemoveTicker(SceneImportSmokeHandle);
 		SceneImportSmokeHandle.Reset();
 	}
+	if (OpenSceneSmokeHandle.IsValid())
+	{
+		FTSTicker::GetCoreTicker().RemoveTicker(OpenSceneSmokeHandle);
+		OpenSceneSmokeHandle.Reset();
+	}
 	if (AssetLibrarySmokeHandle.IsValid())
 	{
 		FTSTicker::GetCoreTicker().RemoveTicker(AssetLibrarySmokeHandle);
@@ -384,6 +389,15 @@ bool FEpicodeEditorShellModule::TryCreateShellWindow()
 	{
 		SceneImportSmokeHandle = FTSTicker::GetCoreTicker().AddTicker(
 			FTickerDelegate::CreateRaw(this, &FEpicodeEditorShellModule::HandleSceneImportSmokeTick),
+			1.0f);
+	}
+	else if (FParse::Value(
+		FCommandLine::Get(),
+		TEXT("EpicodeFocusedEditorOpenSceneSmoke="),
+		OpenSceneSmokeId))
+	{
+		OpenSceneSmokeHandle = FTSTicker::GetCoreTicker().AddTicker(
+			FTickerDelegate::CreateRaw(this, &FEpicodeEditorShellModule::HandleOpenSceneSmokeTick),
 			1.0f);
 	}
 	else if (FParse::Value(
@@ -684,6 +698,59 @@ bool FEpicodeEditorShellModule::HandleSceneImportSmokeTick(float DeltaTime)
 		ShellWindow->RequestDestroyWindow();
 	}
 	return false;
+}
+
+bool FEpicodeEditorShellModule::HandleOpenSceneSmokeTick(float DeltaTime)
+{
+	if (!ShellWidget.IsValid())
+	{
+		OpenSceneSmokeHandle.Reset();
+		return false;
+	}
+
+	if (OpenSceneSmokeStep > 0)
+	{
+		if (FPlatformTime::Seconds() - OpenSceneSmokeReadyTime < 3.0)
+		{
+			return true;
+		}
+		OpenSceneSmokeHandle.Reset();
+		WriteScreenshot(TEXT("EditorShellOpenScene.png"));
+
+		if (FParse::Param(FCommandLine::Get(), TEXT("EpicodeFocusedEditorExitSmoke"))
+			&& ShellWindow.IsValid())
+		{
+			ShellWindow->RequestDestroyWindow();
+		}
+		return false;
+	}
+
+	OpenSceneSmokeStep = 1;
+	const bool bOpened = ShellWidget->OpenSceneByIdForSmokeTest(OpenSceneSmokeId);
+	FString WorldPackage;
+	if (UEpicodeSceneSubsystem* Scene = UEpicodeSceneSubsystem::GetPrimary())
+	{
+		if (UWorld* World = UEpicodeSceneSubsystem::GetPrimaryWorld())
+		{
+			WorldPackage = World->GetOutermost()->GetName();
+		}
+		UE_LOG(LogEpicodeEditorShell, Display,
+			TEXT("FocusedEditor open scene smoke: success=%s sceneId=%s current=%s world=%s"),
+			bOpened ? TEXT("true") : TEXT("false"),
+			*OpenSceneSmokeId,
+			*Scene->GetCurrentSceneId(),
+			*WorldPackage);
+	}
+	else
+	{
+		UE_LOG(LogEpicodeEditorShell, Warning,
+			TEXT("FocusedEditor open scene smoke: no scene subsystem for %s"),
+			*OpenSceneSmokeId);
+	}
+	OpenSceneSmokeReadyTime = FPlatformTime::Seconds();
+	UE_LOG(LogEpicodeEditorShell, Display,
+		TEXT("FocusedEditor open scene smoke: waiting for level streaming"));
+	return true;
 }
 
 bool FEpicodeEditorShellModule::HandleAssetLibrarySmokeTick(float DeltaTime)

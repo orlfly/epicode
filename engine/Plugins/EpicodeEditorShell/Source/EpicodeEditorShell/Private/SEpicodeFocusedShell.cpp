@@ -13,6 +13,7 @@
 #include "EpicodeAssistantSidecar.h"
 #include "EpicodeAssistantSecrets.h"
 #include "EpicodeAssistantTypes.h"
+#include "EpicodeEditorShellModule.h"
 #include "EpicodeEntityActors.h"
 #include "EpicodeSceneLibrary.h"
 #include "EpicodeSceneSubsystem.h"
@@ -22,6 +23,7 @@
 #include "Framework/Commands/UICommandList.h"
 #include "Framework/Commands/GenericCommands.h"
 #include "Framework/MultiBox/MultiBoxBuilder.h"
+#include "FileHelpers.h"
 #include "HAL/FileManager.h"
 #include "HAL/PlatformProcess.h"
 #include "HAL/PlatformTime.h"
@@ -898,8 +900,10 @@ void SEpicodeFocusedShell::BuildRecentSceneMenu(FMenuBuilder& MenuBuilder)
 		FUIAction Action;
 		if (Row.bAvailable)
 		{
-			Action = FUIAction(FExecuteAction::CreateSP(
-				this, &SEpicodeFocusedShell::OpenSceneById, Row.Id));
+			Action = FUIAction(FExecuteAction::CreateLambda([this, Id = Row.Id]()
+			{
+				OpenSceneById(Id);
+			}));
 		}
 		MenuBuilder.AddMenuEntry(
 			FText::FromString(Row.bCurrent
@@ -946,8 +950,10 @@ void SEpicodeFocusedShell::BuildOpenSceneMenu(FMenuBuilder& MenuBuilder)
 		FUIAction Action;
 		if (Row.bAvailable)
 		{
-			Action = FUIAction(FExecuteAction::CreateSP(
-				this, &SEpicodeFocusedShell::OpenSceneById, Row.Id));
+			Action = FUIAction(FExecuteAction::CreateLambda([this, Id = Row.Id]()
+			{
+				OpenSceneById(Id);
+			}));
 		}
 		MenuBuilder.AddMenuEntry(
 			FText::FromString(Label), FText::FromString(Tooltip), FSlateIcon(), Action);
@@ -5555,7 +5561,73 @@ void SEpicodeFocusedShell::CloseScene()
 	RefreshUi();
 }
 
-void SEpicodeFocusedShell::OpenSceneById(FString InSceneId)
+bool SEpicodeFocusedShell::OpenSceneByIdForSmokeTest(const FString& InSceneId)
+{
+	return OpenSceneById(InSceneId);
+}
+
+bool SEpicodeFocusedShell::LoadSceneBaseLevel(const FString& InSceneId, FString& OutError)
+{
+	FEpicodeSceneLibraryEntry Entry;
+	if (!FEpicodeSceneLibrary::Find(
+		UEpicodeSettings::Get()->GetSceneRootPath(), InSceneId, Entry))
+	{
+		return true;
+	}
+
+	FEpicodeSceneDocument Document;
+	if (!FEpicodeSceneLibrary::Load(Entry.DocumentPath, Document, OutError))
+	{
+		return false;
+	}
+
+	FString TargetPackage;
+	if (!Document.LevelPath.IsEmpty())
+	{
+		TargetPackage = FPackageName::ObjectPathToPackageName(Document.LevelPath);
+		if (!FPackageName::DoesPackageExist(TargetPackage))
+		{
+			UE_LOG(LogEpicodeEditorShell, Warning,
+				TEXT("Scene %s base level does not exist: %s"),
+				*InSceneId, *Document.LevelPath);
+			TargetPackage.Reset();
+		}
+	}
+
+	UWorld* CurrentWorld = UEpicodeSceneSubsystem::GetPrimaryWorld();
+	const FString CurrentPackage = CurrentWorld && CurrentWorld->GetOutermost()
+		? CurrentWorld->GetOutermost()->GetName()
+		: FString();
+	if (!TargetPackage.IsEmpty())
+	{
+		if (CurrentPackage == TargetPackage)
+		{
+			ActiveBaseLevelPackage = TargetPackage;
+			return true;
+		}
+		if (!FEditorFileUtils::LoadMap(TargetPackage, false, false))
+		{
+			OutError = FString::Printf(
+				TEXT("无法加载场景基础地图：%s"), *Document.LevelPath);
+			return false;
+		}
+		ActiveBaseLevelPackage = TargetPackage;
+		return true;
+	}
+
+	if (!ActiveBaseLevelPackage.IsEmpty() && CurrentPackage == ActiveBaseLevelPackage)
+	{
+		if (!UEditorLoadingAndSavingUtils::NewBlankMap(false))
+		{
+			OutError = TEXT("无法为当前场景创建空白基础地图。");
+			return false;
+		}
+		ActiveBaseLevelPackage.Reset();
+	}
+	return true;
+}
+
+bool SEpicodeFocusedShell::OpenSceneById(FString InSceneId)
 {
 	if (Model.IsDirty())
 	{
@@ -5564,8 +5636,17 @@ void SEpicodeFocusedShell::OpenSceneById(FString InSceneId)
 			FText::FromString(TEXT("当前场景有未保存修改，仍要打开其他场景？")));
 		if (Answer != EAppReturnType::Yes)
 		{
-			return;
+			return false;
 		}
+	}
+
+	FString LevelError;
+	if (!LoadSceneBaseLevel(InSceneId, LevelError))
+	{
+		Model.SetLastMessage(LevelError);
+		RefreshStatus();
+		FMessageDialog::Open(EAppMsgType::Ok, FText::FromString(LevelError));
+		return false;
 	}
 
 	TSharedPtr<FJsonObject> Params = MakeShared<FJsonObject>();
@@ -5575,8 +5656,37 @@ void SEpicodeFocusedShell::OpenSceneById(FString InSceneId)
 	{
 		SelectedLibrarySceneId = InSceneId;
 		MarkRecentScene(InSceneId);
+		FocusViewportOnActiveCamera();
 	}
 	RefreshUi();
+	return Result.bSuccess;
+}
+
+void SEpicodeFocusedShell::FocusViewportOnActiveCamera()
+{
+	if (!Viewport.IsValid())
+	{
+		return;
+	}
+	UEpicodeSceneSubsystem* Scene = UEpicodeSceneSubsystem::GetPrimary();
+	if (!Scene)
+	{
+		return;
+	}
+	const FEpicodeEntityRecord* Camera = Scene->FindEntity(Model.GetActiveCameraId());
+	if (!Camera)
+	{
+		return;
+	}
+
+	FLevelEditorViewportClient& Client = Viewport->GetLevelViewportClient();
+	Client.SetViewLocation(Camera->Transform.Location);
+	Client.SetViewRotation(Camera->Transform.Rotation);
+	Client.Invalidate();
+
+	SavedCameraLocation = Camera->Transform.Location;
+	SavedCameraRotation = Camera->Transform.Rotation;
+	bHasSavedCamera = true;
 }
 
 void SEpicodeFocusedShell::ImportSceneFromFile()

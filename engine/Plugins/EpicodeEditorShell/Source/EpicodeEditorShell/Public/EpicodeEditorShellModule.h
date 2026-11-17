@@ -33,6 +33,7 @@ private:
 	bool HandleShortcutSmokeTick(float DeltaTime);
 	bool HandleViewportRetrySmokeTick(float DeltaTime);
 	bool HandleSceneImportSmokeTick(float DeltaTime);
+	bool HandleOpenSceneSmokeTick(float DeltaTime);
 	bool HandleAssetLibrarySmokeTick(float DeltaTime);
 	bool HandleInspectorSmokeTick(float DeltaTime);
 	bool HandleScriptSmokeTick(float DeltaTime);
@@ -57,6 +58,7 @@ private:
 	FTSTicker::FDelegateHandle ShortcutSmokeHandle;
 	FTSTicker::FDelegateHandle ViewportRetrySmokeHandle;
 	FTSTicker::FDelegateHandle SceneImportSmokeHandle;
+	FTSTicker::FDelegateHandle OpenSceneSmokeHandle;
 	FTSTicker::FDelegateHandle AssetLibrarySmokeHandle;
 	FTSTicker::FDelegateHandle InspectorSmokeHandle;
 	FTSTicker::FDelegateHandle ScriptSmokeHandle;
@@ -66,6 +68,9 @@ private:
 	int32 ShortcutSmokeStep = 0;
 	int32 ViewportRetrySmokeStep = 0;
 	FString SceneImportSmokePath;
+	FString OpenSceneSmokeId;
+	int32 OpenSceneSmokeStep = 0;
+	double OpenSceneSmokeReadyTime = 0.0;
 	FString AssetLibrarySmokePath;
 	FString AssetLibrarySmokeCharacterPath;
 	int32 AssetLibrarySmokeStep = 0;

@@ -88,6 +88,7 @@ cd engine
 
 - 索引：`Saved/Epicode/Library/index.json`，场景/角色/物品三类条目。
 - 场景扫描：`Saved/Epicode/Scenes`，显示名称、短 sceneId、实体数、修改时间和可用状态；同名场景在名称后追加 `#短sceneId` 以区分。
+- 打开场景时，若 `levelPath` 指向存在的 UE 地图，先加载该地图作为编辑器基础关卡，再叠加场景实体，并把视口镜头移到场景活动相机；加载失败时保留当前关卡并提示错误。
 - 资产扫描：`/Game/Epicode/Imported/Characters`、`/Game/Epicode/Imported/Props` 和配置根；缺失资产标记 `available=false` 并禁用放置。
 - 场景导入只支持 `scene.json`；重复 sceneId 可选择覆盖、副本或取消。
 - 资产导入通过 `import.submit` 异步任务；左栏显示文件、阶段、百分比、进度条和取消按钮。Interchange 本体仍在游戏线程同步执行，取消只对尚未开始的任务立即生效。
