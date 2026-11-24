@@ -37,6 +37,7 @@ public:
 	void PlayLocalActionPrediction(const FString& InActionTag);
 	void ApplyLocalMicroExpression(double InIntensity);
 	void ApplyLocalIKCorrections(double InHandWeight, double InFootWeight, double InLookAtWeight);
+	class UEpicodeLocalIKComponent* GetLocalIKComponent() const { return LocalIKComponent; }
 
 	UFUNCTION(Server, Reliable)
 	void ServerRequestAction(const FString& InActionTag, bool bInterrupt, float InDurationSeconds);
@@ -86,6 +87,9 @@ protected:
 	void OnRep_Performance();
 
 private:
+	UPROPERTY()
+	TObjectPtr<class UEpicodeLocalIKComponent> LocalIKComponent;
+
 	float TransformRecordAccumulator = 0.0f;
 	double ActionRemainingSeconds = 0.0;
 };

@@ -17,15 +17,16 @@ UE_ROOT=/opt/UnrealEngine ./Scripts/Build.sh
 
 | 脚本 | 用途 |
 | --- | --- |
-| `Scripts/env.sh` | 解析 `UE_ROOT`、项目文件和编辑器命令；`--check` 做环境检查 |
-| `Scripts/Build.sh` | 构建 `EpicodeVideoEditor Linux Development` |
+| `Scripts/env.sh` | 解析 `UE_ROOT`、项目文件、编辑器/Game/Server 二进制和 `SERVER_MODE`/`CLIENT_MODE`；`--check` 做环境检查 |
+| `Scripts/Build.sh` | 构建 `EpicodeVideoEditor Linux Development`；`TARGET=EpicodeVideoServer` 失败时写回退日志并返回 6 |
 | `Scripts/Editor.sh` | 启动带界面的编辑器；默认聚焦模式，`--legacy` 进入完整 Editor |
 | `Scripts/Headless.sh` | 无界面启动，监听 HTTP/WS |
 | `Scripts/Test.sh` | 运行 `Epicode.*` 自动化测试 |
 | `Scripts/Smoke.sh` | 启动、建场景、建实体、保存、可选渲染并退出 |
 | `Scripts/Server.sh` | 启动服务器和 HTTP/WS 控制面；无 `EpicodeVideoServer` 时回退到 `UnrealEditor-Cmd -server`，支持端口、场景和额外 Unreal 参数 |
-| `Scripts/Client.sh` | 启动客户端并连接服务器；当前默认 `UnrealEditor -game`，支持玩家名称和分辨率 |
-| `Scripts/NetworkSmoke.sh` | 启动服务器和两个无界面客户端，验证加入、角色出生点/外观、移动、表演、物品/制作/建造、重连和事件顺序 |
+| `Scripts/Client.sh` | 启动客户端并连接服务器；`--mode auto|game|editor`，Game 失败时回退 `UnrealEditor -game` |
+| `Scripts/NetworkSmoke.sh` | 启动服务器和两个无界面客户端，验证加入、角色出生点/外观、移动、表演、物品/制作/建造、重连和事件顺序，并写 `network-smoke-summary.json` |
+| `Scripts/CollectEvidence.sh` | 汇总构建、测试和五个冒烟日志到 `Saved/Logs/acceptance-summary.json`；`--check` 校验摘要 |
 | `Scripts/AgentSmoke.sh` | 启动服务器和纯 HTTP Agent，验证加入、租约、移动、观察、释放和事件 |
 | `Scripts/Viewer.sh` | 启动只读 Viewer，支持服务器、名称、令牌、相机模式和分辨率 |
 | `Scripts/ViewerSmoke.sh` | 启动服务器和两个 Viewer，验证只读注册、无角色、相机摘要、世界快照、多 Viewer 和会话结束 |
@@ -56,7 +57,7 @@ cd engine
 
 venv 位于 `Saved/Epicode/Assistant/venv`，不提交仓库。`SetupSidecar.sh --force` 可重建；`PIP_INDEX_URL` 可指定镜像。
 
-当前安装的 Unreal Engine 发行版不支持独立 `Server` 构建目标，`TARGET=EpicodeVideoServer` 会返回 `Server targets are not currently supported from this engine distribution.`。多人服务器改用 `UnrealEditor-Cmd -server` 启动，详见 `Docs/Multiplayer.md`。
+当前安装的 Unreal Engine 发行版不支持独立 `Server` 构建目标，`TARGET=EpicodeVideoServer` 会返回退出码 6，并把请求目标、引擎错误、`serverMode=editor-fallback` 和 `serverTargetSupported=0` 写入 `Saved/Logs/build-server-target.log`。多人服务器改用 `UnrealEditor-Cmd -server` 启动，`Server.sh` 把实际二进制和回退原因写入 `Saved/Logs/server-fallback.log`。详见 `Docs/Multiplayer.md`。
 
 ## 启动
 
@@ -104,7 +105,7 @@ curl -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8710/api/v1/health
 ./Scripts/Test.sh
 ```
 
-当前注册 162 个 `Epicode.*` 自动化测试，覆盖核心模型、场景迁移、命令回滚、导入、渲染与 Take 渲染、制作包校验、沙盒世界/规则/玩法/随机流/固定 tick、重演 journal/快照/ghost/resim/分支/保留、导演节拍/cue/接管/Take/视角、网络会话/权限/快照/复制/重连、Agent/Viewer/Studio 工作区和文档契约；结果写入 `Saved/Logs/test.log`。
+当前注册 193 个 `Epicode.*` 自动化测试，覆盖核心模型、场景迁移、命令回滚、导入、渲染与 Take 渲染、制作包校验、沙盒世界/规则/玩法/随机流/固定 tick、重演 journal/快照/ghost/resim/分支/保留、导演节拍/cue/接管/Take/视角、网络会话/权限/快照/复制/重连/本地 IK/服务器回退、Agent/Viewer/Studio 工作区、远程控制 API 客户端和文档契约；结果写入 `Saved/Logs/test.log`。
 
 ## 多人服务器与客户端
 
@@ -115,7 +116,12 @@ cd engine
 ./Scripts/Client.sh --server 127.0.0.1:7777 --name Bob
 ```
 
-`Server.sh` 在端口占用时返回非零状态。`EPICODE_GAME_PORT`、`EPICODE_SESSION_SCENE`、`EPICODE_SERVER`、`EPICODE_PLAYER_NAME` 可覆盖默认值。服务端日志写入 `Saved/Logs/server.log`，客户端日志写入 `Saved/Logs/client.log`。
+`Server.sh` 在端口占用时返回非零状态。`EPICODE_GAME_PORT`、`EPICODE_SESSION_SCENE`、`EPICODE_SERVER`、`EPICODE_PLAYER_NAME`、`EPICODE_SERVER_MODE`、`EPICODE_CLIENT_MODE` 可覆盖默认值。服务端日志写入 `Saved/Logs/server.log`，客户端日志写入 `Saved/Logs/client.log`。回退证据分别写入 `Saved/Logs/server-fallback.log` 和 `client-fallback.log`，`system.health.network` 和 `session.snapshot` 返回 `serverMode`、`serverTargetSupported`、`fallbackReason`、`serverBinary`、`clientMode`。
+
+```bash
+./Scripts/Client.sh --mode auto --server 127.0.0.1:7777 --name Alice
+./Scripts/Client.sh --mode editor --server 127.0.0.1:7777 --name Bob
+```
 
 ### Agent 与 Viewer
 
@@ -217,6 +223,15 @@ EPICODE_SMOKE_RENDER=1 ./Scripts/Smoke.sh
 ```
 
 渲染需要可用的 GPU/离屏渲染环境；无 GPU 时工作进程会在 `result.json` 中返回诊断。
+
+汇总最近一次构建、全量测试和冒烟证据：
+
+```bash
+./Scripts/CollectEvidence.sh
+./Scripts/CollectEvidence.sh --check
+```
+
+摘要写入 `Saved/Logs/acceptance-summary.json`。缺少日志的组写 `not-measured`，不会把缺失证据报告为通过。
 
 ## 清理
 

@@ -46,19 +46,38 @@ fi
 LOG_DIR="${ENGINE_DIR}/Saved/Logs"
 mkdir -p "${LOG_DIR}"
 LOG_FILE="${EPICODE_SERVER_LOG:-${LOG_DIR}/server.log}"
+FALLBACK_LOG="${LOG_DIR}/server-fallback.log"
 
-if [[ -x "${SERVER_BIN}" ]]; then
+if [[ ( "${SERVER_MODE}" == "auto" || "${SERVER_MODE}" == "server-target" ) && -x "${SERVER_BIN}" ]]; then
   LAUNCH_BIN="${SERVER_BIN}"
   LAUNCH_ARGS=("${PROJECT_FILE}" -server -unattended -nosplash -nullrhi -Port="${PORT}")
-elif [[ -x "${EDITOR_CMD_BIN}" ]]; then
+  ACTUAL_SERVER_MODE="server-target"
+  SERVER_TARGET_SUPPORTED=1
+  FALLBACK_REASON=""
+elif [[ "${SERVER_MODE}" != "server-target" && -x "${EDITOR_CMD_BIN}" ]]; then
   LAUNCH_BIN="${EDITOR_CMD_BIN}"
   LAUNCH_ARGS=("${PROJECT_FILE}" /Engine/Maps/Entry -server -unattended -nosplash -nullrhi -Port="${PORT}")
+  ACTUAL_SERVER_MODE="editor-fallback"
+  SERVER_TARGET_SUPPORTED=0
+  FALLBACK_REASON="EpicodeVideoServer is unavailable or unsupported; using UnrealEditor-Cmd -server."
 else
   echo "No server binary found. Build EpicodeVideoServer or install an engine with server support." >&2
   exit 4
 fi
 
+{
+  echo "serverMode=${ACTUAL_SERVER_MODE}"
+  echo "serverTargetSupported=${SERVER_TARGET_SUPPORTED}"
+  echo "serverBinary=${LAUNCH_BIN}"
+  echo "fallbackReason=${FALLBACK_REASON}"
+} > "${FALLBACK_LOG}"
+export EPICODE_SERVER_MODE="${ACTUAL_SERVER_MODE}"
+export EPICODE_SERVER_TARGET_SUPPORTED="${SERVER_TARGET_SUPPORTED}"
+export EPICODE_SERVER_FALLBACK_REASON="${FALLBACK_REASON}"
+export EPICODE_SERVER_BINARY="${LAUNCH_BIN}"
+
 echo "Starting dedicated server on port ${PORT} (scene=${SCENE_ID:-none})"
+echo "Server mode: ${ACTUAL_SERVER_MODE} binary=${LAUNCH_BIN}"
 echo "Server log: ${LOG_FILE}"
 if command -v stdbuf >/dev/null 2>&1; then
   exec stdbuf -oL -eL "${LAUNCH_BIN}" "${LAUNCH_ARGS[@]}" -EpicodeSessionScene="${SCENE_ID}" "${EXTRA_ARGS[@]}" >>"${LOG_FILE}" 2>&1

@@ -4,6 +4,7 @@
 #include "EpicodeAgentController.h"
 #include "EpicodeDiagnostics.h"
 #include "EpicodeEntityActors.h"
+#include "EpicodeLocalIK.h"
 #include "EpicodeEngineSubsystem.h"
 #include "EpicodeNetworkCharacter.h"
 #include "EpicodeNetworkCommands.h"
@@ -16,6 +17,7 @@
 #include "EpicodeNetworkSubsystem.h"
 #include "EpicodeNetworkTypes.h"
 #include "EpicodeRuntimeEnvironmentActor.h"
+#include "EpicodeRuntimeMode.h"
 #include "EpicodeViewerPlayerController.h"
 #include "EpicodeViewerSpectatorPawn.h"
 #include "Camera/CameraActor.h"
@@ -30,6 +32,7 @@
 #include "Engine/World.h"
 #include "EngineUtils.h"
 #include "HAL/FileManager.h"
+#include "HAL/PlatformMisc.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Guid.h"
 #include "Misc/Paths.h"
@@ -1875,7 +1878,84 @@ bool FEpicodeNetworkHealthTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("health network module loaded"), (*Network)->GetBoolField(TEXT("moduleLoaded")));
 		TestEqual(TEXT("health online subsystem"), (*Network)->GetStringField(TEXT("onlineSubsystem")), FString(TEXT("LAN")));
 		TestTrue(TEXT("health network port"), (*Network)->GetIntegerField(TEXT("port")) > 0);
+		TestTrue(TEXT("health server mode"), (*Network)->HasField(TEXT("serverMode")));
+		TestTrue(TEXT("health server target support"), (*Network)->HasField(TEXT("serverTargetSupported")));
+		TestTrue(TEXT("health fallback reason"), (*Network)->HasField(TEXT("fallbackReason")));
+		TestTrue(TEXT("health server binary"), (*Network)->HasField(TEXT("serverBinary")));
+		TestTrue(TEXT("health client mode"), (*Network)->HasField(TEXT("clientMode")));
 	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FEpicodeNetworkServerFallbackTest, "Epicode.Network.ServerFallback", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FEpicodeNetworkServerFallbackTest::RunTest(const FString& Parameters)
+{
+	const TCHAR* Names[] = {
+		TEXT("EPICODE_SERVER_MODE"),
+		TEXT("EPICODE_SERVER_TARGET_SUPPORTED"),
+		TEXT("EPICODE_SERVER_FALLBACK_REASON"),
+		TEXT("EPICODE_SERVER_BINARY"),
+		TEXT("EPICODE_CLIENT_MODE")
+	};
+	TMap<FString, FString> Previous;
+	for (const TCHAR* Name : Names)
+	{
+		Previous.Add(Name, FPlatformMisc::GetEnvironmentVariable(Name));
+	}
+	auto Restore = [&Previous, &Names]()
+	{
+		for (const TCHAR* Name : Names)
+		{
+			FPlatformMisc::SetEnvironmentVar(Name, *Previous.FindRef(Name));
+		}
+	};
+
+	TestEqual(TEXT("server command resolves to editor fallback"),
+		FEpicodeRuntimeMode::ResolveServerMode(TEXT("-server"), FString(), FString()),
+		FString(TEXT("editor-fallback")));
+	TestEqual(TEXT("explicit server target wins"),
+		FEpicodeRuntimeMode::ResolveServerMode(TEXT("-server"), TEXT("server-target"), FString()),
+		FString(TEXT("server-target")));
+	TestEqual(TEXT("no server flag resolves to none"),
+		FEpicodeRuntimeMode::ResolveServerMode(TEXT(""), FString(), FString()),
+		FString(TEXT("none")));
+	TestTrue(TEXT("bool true"), FEpicodeRuntimeMode::ParseBoolEnvironment(TEXT("true"), false));
+	TestTrue(TEXT("bool one"), FEpicodeRuntimeMode::ParseBoolEnvironment(TEXT("1"), false));
+	TestFalse(TEXT("bool false"), FEpicodeRuntimeMode::ParseBoolEnvironment(TEXT("false"), true));
+	TestFalse(TEXT("bool zero"), FEpicodeRuntimeMode::ParseBoolEnvironment(TEXT("0"), true));
+	TestTrue(TEXT("bool default"), FEpicodeRuntimeMode::ParseBoolEnvironment(TEXT("unknown"), true));
+
+	FPlatformMisc::SetEnvironmentVar(TEXT("EPICODE_SERVER_MODE"), TEXT("server-target"));
+	FPlatformMisc::SetEnvironmentVar(TEXT("EPICODE_SERVER_TARGET_SUPPORTED"), TEXT("1"));
+	FPlatformMisc::SetEnvironmentVar(TEXT("EPICODE_SERVER_FALLBACK_REASON"), TEXT(""));
+	FPlatformMisc::SetEnvironmentVar(TEXT("EPICODE_SERVER_BINARY"), TEXT("/tmp/EpicodeVideoServer"));
+	FPlatformMisc::SetEnvironmentVar(TEXT("EPICODE_CLIENT_MODE"), TEXT("game-binary"));
+	FEpicodeRuntimeMode TargetMode = FEpicodeRuntimeMode::Resolve();
+	TestEqual(TEXT("target mode"), TargetMode.ServerMode, FString(TEXT("server-target")));
+	TestTrue(TEXT("target supported"), TargetMode.bServerTargetSupported);
+	TestEqual(TEXT("target binary"), TargetMode.ServerBinary, FString(TEXT("/tmp/EpicodeVideoServer")));
+	TestEqual(TEXT("client mode"), TargetMode.ClientMode, FString(TEXT("game-binary")));
+
+	FPlatformMisc::SetEnvironmentVar(TEXT("EPICODE_SERVER_MODE"), TEXT("editor-fallback"));
+	FPlatformMisc::SetEnvironmentVar(TEXT("EPICODE_SERVER_TARGET_SUPPORTED"), TEXT("0"));
+	FPlatformMisc::SetEnvironmentVar(TEXT("EPICODE_SERVER_FALLBACK_REASON"), TEXT("Server targets are not supported by this engine distribution."));
+	FPlatformMisc::SetEnvironmentVar(TEXT("EPICODE_SERVER_BINARY"), TEXT("/usr/local/unreal/Engine/Binaries/Linux/UnrealEditor-Cmd"));
+	FPlatformMisc::SetEnvironmentVar(TEXT("EPICODE_CLIENT_MODE"), TEXT("editor-game"));
+	FEpicodeRuntimeMode FallbackMode = FEpicodeRuntimeMode::Resolve();
+	TestEqual(TEXT("fallback mode"), FallbackMode.ServerMode, FString(TEXT("editor-fallback")));
+	TestFalse(TEXT("fallback target unsupported"), FallbackMode.bServerTargetSupported);
+	TestTrue(TEXT("fallback reason"), FallbackMode.ServerFallbackReason.Contains(TEXT("not supported")));
+	TestEqual(TEXT("fallback binary"), FallbackMode.ServerBinary,
+		FString(TEXT("/usr/local/unreal/Engine/Binaries/Linux/UnrealEditor-Cmd")));
+	TestEqual(TEXT("fallback client mode"), FallbackMode.ClientMode, FString(TEXT("editor-game")));
+	const TSharedPtr<FJsonObject> ModeJson = FallbackMode.ToJson();
+	TestEqual(TEXT("mode JSON server mode"), ModeJson->GetStringField(TEXT("serverMode")), FString(TEXT("editor-fallback")));
+	TestFalse(TEXT("mode JSON support"), ModeJson->GetBoolField(TEXT("serverTargetSupported")));
+	TestTrue(TEXT("mode JSON reason"), ModeJson->GetStringField(TEXT("fallbackReason")).Contains(TEXT("not supported")));
+	TestTrue(TEXT("mode JSON client mode"), ModeJson->HasField(TEXT("clientMode")));
+
+	Restore();
 	return true;
 }
 
@@ -2236,6 +2316,69 @@ bool FEpicodeNetworkIKTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("over IK clamp"), FEpicodePerformanceRules::ClampIKWeight(2.0), 1.0f);
 	TestEqual(TEXT("mid IK clamp"), FEpicodePerformanceRules::ClampIKWeight(0.5), 0.5f);
 	TestEqual(TEXT("non-finite IK clamp"), FEpicodePerformanceRules::ClampIKWeight(FMath::Sqrt(-1.0)), 0.0f);
+
+	const FVector Clamped = FEpicodeLocalIKRules::ClampWeights(FVector(-1.0, 2.0, 0.25));
+	TestEqual(TEXT("local IK hand clamp"), Clamped.X, 0.0);
+	TestEqual(TEXT("local IK foot clamp"), Clamped.Y, 1.0);
+	TestEqual(TEXT("local IK look clamp"), Clamped.Z, 0.25);
+	TestTrue(TEXT("zero weights detected"), FEpicodeLocalIKRules::AreWeightsZero(FVector::ZeroVector));
+	TestFalse(TEXT("non-zero weights detected"), FEpicodeLocalIKRules::AreWeightsZero(FVector(0.0, 0.0, 0.1)));
+
+	TestTrue(TEXT("local owner client applies IK"),
+		FEpicodeLocalIKRules::ShouldApplyLocalIK(true, false, false, true, FVector(1.0, 1.0, 1.0)));
+	TestFalse(TEXT("server skips IK"),
+		FEpicodeLocalIKRules::ShouldApplyLocalIK(true, true, false, true, FVector(1.0, 1.0, 1.0)));
+	TestFalse(TEXT("dedicated server skips IK"),
+		FEpicodeLocalIKRules::ShouldApplyLocalIK(true, false, true, true, FVector(1.0, 1.0, 1.0)));
+	TestFalse(TEXT("remote proxy skips IK"),
+		FEpicodeLocalIKRules::ShouldApplyLocalIK(true, false, false, false, FVector(1.0, 1.0, 1.0)));
+	TestFalse(TEXT("zero weights skip IK"),
+		FEpicodeLocalIKRules::ShouldApplyLocalIK(true, false, false, true, FVector::ZeroVector));
+	TestFalse(TEXT("disabled settings skip IK"),
+		FEpicodeLocalIKRules::ShouldApplyLocalIK(false, false, false, true, FVector(1.0, 1.0, 1.0)));
+
+	const FTransform Base(FRotator::ZeroRotator, FVector(0.0, 0.0, 0.0));
+	const FTransform Solved(FRotator(0.0, 90.0, 0.0), FVector(100.0, 0.0, 0.0));
+	const FTransform Half = FEpicodeLocalIKRules::BlendBoneTransform(Base, Solved, 0.5);
+	TestEqual(TEXT("half blend location"), Half.GetTranslation().X, 50.0);
+	TestEqual(TEXT("zero blend keeps base"), FEpicodeLocalIKRules::BlendBoneTransform(Base, Solved, 0.0).GetTranslation().X, 0.0);
+	TestEqual(TEXT("full blend uses solved"), FEpicodeLocalIKRules::BlendBoneTransform(Base, Solved, 1.0).GetTranslation().X, 100.0);
+	TestTrue(TEXT("half blend rotates"), Half.Rotator().Yaw > 0.0);
+
+	const FVector LookAt = FEpicodeLocalIKRules::MakeLookAtTarget(
+		FVector(0.0, 0.0, 100.0), FVector(1.0, 0.0, 0.0), 500.0);
+	TestTrue(TEXT("look-at target forward"), LookAt.Equals(FVector(500.0, 0.0, 100.0)));
+	TestTrue(TEXT("look-at zero forward keeps head"),
+		FEpicodeLocalIKRules::MakeLookAtTarget(FVector(0.0, 0.0, 100.0), FVector::ZeroVector, 500.0)
+			.Equals(FVector(0.0, 0.0, 100.0)));
+
+	UEpicodeLocalIKComponent* Component = NewObject<UEpicodeLocalIKComponent>();
+	TestNotNull(TEXT("local IK component"), Component);
+	if (Component)
+	{
+		TestTrue(TEXT("component starts with zero weights"),
+			FEpicodeLocalIKRules::AreWeightsZero(Component->GetIKWeights()));
+		Component->SetIKWeights(-1.0, 2.0, 0.5);
+		TestEqual(TEXT("component hand weight"), Component->GetIKWeights().X, 0.0);
+		TestEqual(TEXT("component foot weight"), Component->GetIKWeights().Y, 1.0);
+		TestEqual(TEXT("component look weight"), Component->GetIKWeights().Z, 0.5);
+	}
+
+	const AEpicodeNetworkCharacter* Character = GetDefault<AEpicodeNetworkCharacter>();
+	TestNotNull(TEXT("network character CDO"), Character);
+	if (Character)
+	{
+		TestNotNull(TEXT("local IK component attached"), Character->GetLocalIKComponent());
+	}
+	FEpicodePerformanceState PerformanceState;
+	const TSharedPtr<FJsonObject> StateJson = PerformanceState.ToJson();
+	TestFalse(TEXT("performance snapshot excludes local IK weights"), StateJson->HasField(TEXT("localIKWeights")));
+	AddInfo(FString::Printf(
+		TEXT("LOCAL_IK_BONE_DELTA baseX=%.1f halfX=%.1f halfYaw=%.1f snapshotHasLocalIK=%s"),
+		Base.GetTranslation().X,
+		Half.GetTranslation().X,
+		Half.Rotator().Yaw,
+		StateJson->HasField(TEXT("localIKWeights")) ? TEXT("true") : TEXT("false")));
 	return true;
 }
 

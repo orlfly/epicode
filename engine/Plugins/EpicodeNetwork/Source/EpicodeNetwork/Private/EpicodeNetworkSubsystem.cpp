@@ -1,5 +1,6 @@
 #include "EpicodeNetworkSubsystem.h"
 
+#include "EpicodeRuntimeMode.h"
 #include "Engine/Engine.h"
 #include "Components/CapsuleComponent.h"
 #include "Engine/World.h"
@@ -1224,6 +1225,7 @@ TSharedPtr<FJsonObject> UEpicodeNetworkSubsystem::GetStatusJson() const
 	Json->SetStringField(TEXT("sessionRoot"), Settings->GetSessionRootPath());
 	Json->SetNumberField(TEXT("reconnectGraceSeconds"), Settings->ReconnectGraceSeconds);
 	Json->SetStringField(TEXT("lastError"), LastError);
+	FEpicodeRuntimeMode::Resolve().ApplyToJson(Json);
 
 	if (!Session.IsValid())
 	{

@@ -10,6 +10,9 @@ EDITOR_CMD_BIN="${UE_ROOT}/Engine/Binaries/Linux/UnrealEditor-Cmd"
 BUILD_SH="${UE_ROOT}/Engine/Build/BatchFiles/Linux/Build.sh"
 SERVER_BIN="${EPICODE_SERVER_BIN:-${ENGINE_DIR}/Binaries/Linux/EpicodeVideoServer}"
 CLIENT_BIN="${EPICODE_CLIENT_BIN:-${EDITOR_BIN}}"
+GAME_BIN="${EPICODE_GAME_BIN:-${ENGINE_DIR}/Binaries/Linux/EpicodeVideo}"
+SERVER_MODE="${EPICODE_SERVER_MODE:-${SERVER_MODE:-auto}}"
+CLIENT_MODE="${EPICODE_CLIENT_MODE:-${CLIENT_MODE:-auto}}"
 
 check_ue() {
   local missing=0
@@ -31,8 +34,11 @@ if [[ "${1:-}" == "--check" ]]; then
   echo "UE_ROOT=${UE_ROOT}"
   echo "PROJECT_FILE=${PROJECT_FILE}"
   echo "EDITOR_BIN=${EDITOR_BIN}"
+  echo "GAME_BIN=${GAME_BIN}"
   echo "SERVER_BIN=${SERVER_BIN}"
   echo "CLIENT_BIN=${CLIENT_BIN}"
+  echo "SERVER_MODE=${SERVER_MODE}"
+  echo "CLIENT_MODE=${CLIENT_MODE}"
   exit 0
 fi
 
@@ -41,4 +47,4 @@ if ! check_ue; then
   exit 1
 fi
 
-export UE_ROOT ENGINE_DIR PROJECT_FILE EDITOR_BIN EDITOR_CMD_BIN BUILD_SH SERVER_BIN CLIENT_BIN
+export UE_ROOT ENGINE_DIR PROJECT_FILE EDITOR_BIN EDITOR_CMD_BIN BUILD_SH SERVER_BIN CLIENT_BIN GAME_BIN SERVER_MODE CLIENT_MODE

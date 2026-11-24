@@ -3,11 +3,14 @@
 #include "Editor.h"
 #include "Editor/Transactor.h"
 #include "EpicodeCommand.h"
+#include "EpicodeControlApiClient.h"
 #include "EpicodeEngineSubsystem.h"
 #include "EpicodeScopedTestSceneRoot.h"
 #include "EpicodeSceneSubsystem.h"
 #include "EpicodeStudioViewModel.h"
 #include "Misc/Paths.h"
+#include "Serialization/JsonReader.h"
+#include "Serialization/JsonSerializer.h"
 #include "SEpicodeStudioPanel.h"
 #include "SEpicodeMultiplayerPanel.h"
 #include "EpicodeMultiplayerViewModel.h"
@@ -599,6 +602,164 @@ bool FEpicodeStudioMultiplayerPanelTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("panel has session"), Panel->GetViewModel()->HasSession());
 	TestEqual(TEXT("panel player count"), Panel->GetViewModel()->GetPlayerCount(), 2);
 	TestEqual(TEXT("panel connected count"), Panel->GetViewModel()->GetConnectedCount(), 1);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FEpicodeStudioControlApiClientTest, "Epicode.Studio.ControlApiClient", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FEpicodeStudioControlApiClientTest::RunTest(const FString& Parameters)
+{
+	TestEqual(TEXT("empty URL uses local default"),
+		FEpicodeControlApiClient::NormalizeBaseUrl(FString()), FString(TEXT("http://127.0.0.1:8710")));
+	TestEqual(TEXT("URL gains scheme"),
+		FEpicodeControlApiClient::NormalizeBaseUrl(TEXT("127.0.0.1:8710/")), FString(TEXT("http://127.0.0.1:8710")));
+	TestEqual(TEXT("RPC path is stripped"),
+		FEpicodeControlApiClient::NormalizeBaseUrl(TEXT("http://127.0.0.1:8710/api/v1/rpc")),
+		FString(TEXT("http://127.0.0.1:8710")));
+	TestTrue(TEXT("empty URL is valid"), FEpicodeControlApiClient::IsValidBaseUrl(FString()));
+	TestFalse(TEXT("unsupported scheme is invalid"), FEpicodeControlApiClient::IsValidBaseUrl(TEXT("ftp://127.0.0.1:8710")));
+	TestFalse(TEXT("hostless URL is invalid"), FEpicodeControlApiClient::IsValidBaseUrl(TEXT("http://")));
+
+	const FString Token = TEXT("secret-token-123456789");
+	const FString Masked = FEpicodeControlApiClient::MaskToken(Token);
+	TestFalse(TEXT("mask hides token"), Masked == Token);
+	TestFalse(TEXT("mask does not contain token"), Masked.Contains(Token));
+	TestTrue(TEXT("mask keeps prefix"), Masked.StartsWith(TEXT("secr")));
+	TestTrue(TEXT("mask keeps suffix"), Masked.EndsWith(TEXT("6789")));
+
+	TSharedPtr<FJsonObject> Params = MakeShared<FJsonObject>();
+	Params->SetStringField(TEXT("playerId"), TEXT("Alice"));
+	const TSharedPtr<FJsonObject> Payload = FEpicodeControlApiClient::BuildRpcPayload(TEXT("session.snapshot"), Params);
+	TestEqual(TEXT("payload jsonrpc"), Payload->GetStringField(TEXT("jsonrpc")), FString(TEXT("2.0")));
+	TestEqual(TEXT("payload method"), Payload->GetStringField(TEXT("method")), FString(TEXT("session.snapshot")));
+	TestEqual(TEXT("payload params"), Payload->GetObjectField(TEXT("params"))->GetStringField(TEXT("playerId")), FString(TEXT("Alice")));
+
+	FEpicodeControlApiResponse Success = FEpicodeControlApiClient::ParseRpcResponse(200,
+		TEXT("{\"jsonrpc\":\"2.0\",\"id\":\"1\",\"result\":{\"state\":\"active\",\"players\":[]}}"), FString(), true);
+	TestTrue(TEXT("RPC success"), Success.bSuccess);
+	TestEqual(TEXT("RPC result"), Success.Result->GetStringField(TEXT("state")), FString(TEXT("active")));
+
+	FEpicodeControlApiResponse Unauthorized = FEpicodeControlApiClient::ParseRpcResponse(401, FString(), FString(), true);
+	TestTrue(TEXT("401 is unauthorized"), Unauthorized.bUnauthorized);
+	TestEqual(TEXT("401 code"), Unauthorized.ErrorCode, FString(TEXT("UNAUTHORIZED")));
+
+	FEpicodeControlApiResponse Forbidden = FEpicodeControlApiClient::ParseRpcResponse(403,
+		TEXT("{\"jsonrpc\":\"2.0\",\"id\":\"1\",\"error\":{\"code\":-32000,\"message\":\"Forbidden\",\"data\":{\"domainCode\":\"FORBIDDEN\"}}}"),
+		FString(), true);
+	TestFalse(TEXT("domain error is failure"), Forbidden.bSuccess);
+	TestEqual(TEXT("domain error code"), Forbidden.ErrorCode, FString(TEXT("FORBIDDEN")));
+	TestEqual(TEXT("domain error message"), Forbidden.ErrorMessage, FString(TEXT("Forbidden")));
+
+	FEpicodeControlApiResponse Timeout = FEpicodeControlApiClient::ParseRpcResponse(0, FString(), TEXT("TIMEOUT"), false);
+	TestTrue(TEXT("timeout classified"), Timeout.bTimedOut);
+	TestEqual(TEXT("timeout code"), Timeout.ErrorCode, FString(TEXT("TIMEOUT")));
+	TestTrue(TEXT("connection failure classified"),
+		FEpicodeControlApiClient::ParseRpcResponse(0, FString(), TEXT("CONNECTION_FAILED"), false).bConnectionError);
+	TestFalse(TEXT("malformed JSON rejected"),
+		FEpicodeControlApiClient::ParseRpcResponse(200, TEXT("not-json"), FString(), true).bSuccess);
+
+	const TSharedPtr<FEpicodeControlApiClient> Client = MakeShared<FEpicodeControlApiClient>();
+	Client->SetBaseUrl(TEXT("http://127.0.0.1:8710"));
+	Client->SetToken(Token);
+	FString CapturedUrl;
+	FString CapturedMethod;
+	FString CapturedAuthorization;
+	Client->SetTransportForTesting(
+		[&CapturedUrl, &CapturedMethod, &CapturedAuthorization](
+			const FString& Url, const FString& Body, const TMap<FString, FString>& Headers,
+			TFunction<void(bool, int32, const FString&, const FString&)> OnComplete)
+		{
+			CapturedUrl = Url;
+			CapturedAuthorization = Headers.FindRef(TEXT("Authorization"));
+			TSharedPtr<FJsonObject> Root;
+			const TSharedRef<TJsonReader<TCHAR>> Reader = TJsonReaderFactory<TCHAR>::Create(Body);
+			if (FJsonSerializer::Deserialize(Reader, Root) && Root.IsValid())
+			{
+				CapturedMethod = Root->GetStringField(TEXT("method"));
+			}
+			OnComplete(true, 200,
+				TEXT("{\"jsonrpc\":\"2.0\",\"id\":\"1\",\"result\":{\"state\":\"active\"}}"), FString());
+		});
+	FEpicodeControlApiResponse AsyncResponse;
+	Client->Request(TEXT("session.snapshot"), MakeShared<FJsonObject>(),
+		[&AsyncResponse](const FEpicodeControlApiResponse& Response)
+		{
+			AsyncResponse = Response;
+		});
+	TestEqual(TEXT("transport URL"), CapturedUrl, FString(TEXT("http://127.0.0.1:8710/api/v1/rpc")));
+	TestEqual(TEXT("transport method"), CapturedMethod, FString(TEXT("session.snapshot")));
+	TestTrue(TEXT("transport bearer token"), CapturedAuthorization.StartsWith(TEXT("Bearer ")));
+	TestTrue(TEXT("async response success"), AsyncResponse.bSuccess);
+	TestFalse(TEXT("client masks token"), Client->GetMaskedToken().Contains(Token));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FEpicodeStudioMultiplayerRemoteTest, "Epicode.Studio.MultiplayerRemote", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FEpicodeStudioMultiplayerRemoteTest::RunTest(const FString& Parameters)
+{
+	const TSharedRef<SEpicodeMultiplayerPanel> Panel = SNew(SEpicodeMultiplayerPanel);
+	Panel->SetViewModelSnapshot(MakeMultiplayerSnapshot());
+	TestEqual(TEXT("default control API URL"), Panel->GetServerUrlForTest(), FString(TEXT("http://127.0.0.1:8710")));
+	TestEqual(TEXT("panel starts local"), Panel->GetModeTextForTest(), FString(TEXT("Local")));
+	TestFalse(TEXT("invalid remote URL rejected"), Panel->ConnectRemoteForTest(TEXT("ftp://127.0.0.1:8710"), TEXT("token")));
+	TestTrue(TEXT("invalid remote status"), Panel->GetConnectionStatusForTest().Contains(TEXT("Invalid")));
+
+	Panel->SetRemoteStateForTest(true, true, TEXT("Remote connected"));
+	TestTrue(TEXT("panel remote mode"), Panel->IsRemoteModeForTest());
+	TestEqual(TEXT("panel remote text"), Panel->GetModeTextForTest(), FString(TEXT("Remote")));
+
+	const TSharedPtr<FEpicodeControlApiClient> Client = MakeShared<FEpicodeControlApiClient>();
+	Client->SetBaseUrl(TEXT("http://127.0.0.1:8710"));
+	Client->SetToken(TEXT("secret-token-123456789"));
+	FString CapturedMethod;
+	Client->SetTransportForTesting(
+		[&CapturedMethod](
+			const FString& Url, const FString& Body, const TMap<FString, FString>& Headers,
+			TFunction<void(bool, int32, const FString&, const FString&)> OnComplete)
+		{
+			TSharedPtr<FJsonObject> Root;
+			const TSharedRef<TJsonReader<TCHAR>> Reader = TJsonReaderFactory<TCHAR>::Create(Body);
+			if (FJsonSerializer::Deserialize(Reader, Root) && Root.IsValid())
+			{
+				CapturedMethod = Root->GetStringField(TEXT("method"));
+			}
+			OnComplete(true, 200,
+				TEXT("{\"jsonrpc\":\"2.0\",\"id\":\"1\",\"result\":{\"state\":\"active\",\"players\":[],\"characters\":[]}}"),
+				FString());
+		});
+	Panel->SetControlApiClientForTest(Client);
+	TestTrue(TEXT("remote create routed"), Panel->SendRemoteCommandForTest(TEXT("session.create"), MakeShared<FJsonObject>()));
+	TestEqual(TEXT("remote create method"), CapturedMethod, FString(TEXT("session.create")));
+	TestTrue(TEXT("remote create status"), Panel->GetConnectionStatusForTest().Contains(TEXT("session.create")));
+
+	const int32 PlayerCountBefore = Panel->GetViewModel()->GetPlayerCount();
+	Client->SetTransportForTesting(
+		[](const FString&, const FString&, const TMap<FString, FString>&,
+			TFunction<void(bool, int32, const FString&, const FString&)> OnComplete)
+		{
+			OnComplete(true, 403,
+				TEXT("{\"jsonrpc\":\"2.0\",\"id\":\"1\",\"error\":{\"code\":-32000,\"message\":\"Forbidden\",\"data\":{\"domainCode\":\"FORBIDDEN\"}}}"),
+				FString());
+		});
+	TestTrue(TEXT("remote kick routed"), Panel->SendRemoteCommandForTest(TEXT("session.kick"), MakeShared<FJsonObject>()));
+	TestTrue(TEXT("remote forbidden shown"), Panel->GetConnectionStatusForTest().Contains(TEXT("FORBIDDEN")));
+	TestEqual(TEXT("remote error does not mutate players"), Panel->GetViewModel()->GetPlayerCount(), PlayerCountBefore);
+
+	Client->SetTransportForTesting(
+		[](const FString&, const FString&, const TMap<FString, FString>&,
+			TFunction<void(bool, int32, const FString&, const FString&)> OnComplete)
+		{
+			OnComplete(false, 0, FString(), TEXT("TIMEOUT"));
+		});
+	TestTrue(TEXT("remote refresh routed"), Panel->SendRemoteCommandForTest(TEXT("session.snapshot"), MakeShared<FJsonObject>()));
+	TestTrue(TEXT("remote timeout shown"), Panel->GetConnectionStatusForTest().Contains(TEXT("TIMEOUT")));
+
+	Panel->UseLocalModeForTest();
+	TestFalse(TEXT("local mode restores"), Panel->IsRemoteModeForTest());
+	TestEqual(TEXT("local mode text"), Panel->GetModeTextForTest(), FString(TEXT("Local")));
+	TestFalse(TEXT("local mode does not route remotely"),
+		Panel->SendRemoteCommandForTest(TEXT("session.create"), MakeShared<FJsonObject>()));
 	return true;
 }
 

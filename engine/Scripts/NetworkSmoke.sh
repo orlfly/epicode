@@ -18,6 +18,8 @@ SERVER_LOG="${LOG_DIR}/network-smoke-server.log"
 CLIENT_A_LOG="${LOG_DIR}/network-smoke-client-a.log"
 CLIENT_B_LOG="${LOG_DIR}/network-smoke-client-b.log"
 SUMMARY_LOG="${LOG_DIR}/network-smoke.log"
+SUMMARY_JSON="${LOG_DIR}/network-smoke-summary.json"
+FAILOVER_LOG="${LOG_DIR}/server-fallback.log"
 SCENE_CREATED=0
 SCENE_DIR=""
 mkdir -p "${LOG_DIR}"
@@ -86,7 +88,7 @@ PY
   SCENE_CREATED=1
 fi
 
-rm -f "${SERVER_LOG}" "${CLIENT_A_LOG}" "${CLIENT_B_LOG}" "${SUMMARY_LOG}"
+rm -f "${SERVER_LOG}" "${CLIENT_A_LOG}" "${CLIENT_B_LOG}" "${SUMMARY_LOG}" "${SUMMARY_JSON}"
 SERVER_PID=""
 CLIENT_A_PID=""
 CLIENT_B_PID=""
@@ -431,5 +433,40 @@ echo "${SNAPSHOT_SUMMARY}"
   grep -a "Performance smoke" "${SERVER_LOG}" || true
   grep -a "World smoke" "${SERVER_LOG}" || true
 } | tee "${SUMMARY_LOG}"
+
+python3 - "${SERVER_LOG}" "${FAILOVER_LOG}" "${SUMMARY_JSON}" "${SCENE_ID}" "${SESSION_ID}" "${PORT}" <<'PY'
+import json
+import os
+import re
+import sys
+
+server_log, fallback_log, output, scene_id, session_id, port = sys.argv[1:7]
+text = open(server_log, "rb").read().decode("utf-8", "ignore")
+distances = [float(value) for value in re.findall(r"Remote drift .* distance=([0-9.]+)", text)]
+recent = distances[-10:]
+server_mode = "not-measured"
+server_binary = "not-measured"
+if os.path.exists(fallback_log):
+    for line in open(fallback_log, encoding="utf-8", errors="ignore"):
+        if line.startswith("serverMode="):
+            server_mode = line.split("=", 1)[1].strip() or "not-measured"
+        elif line.startswith("serverBinary="):
+            server_binary = line.split("=", 1)[1].strip() or "not-measured"
+summary = {
+    "sceneId": scene_id,
+    "sessionId": session_id,
+    "port": int(port),
+    "serverMode": server_mode,
+    "serverBinary": server_binary,
+    "sampleCount": len(distances),
+    "maxRecentDrift": max(recent) if recent else "not-measured",
+    "rttMs": "not-measured",
+    "packetLoss": "not-measured",
+    "measurementScope": "local-loopback",
+}
+with open(output, "w", encoding="utf-8") as handle:
+    json.dump(summary, handle, indent=2)
+print(f"summary={output}")
+PY
 
 echo "Epicode network smoke passed"

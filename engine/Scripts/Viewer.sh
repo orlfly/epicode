@@ -32,7 +32,7 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     --res)
-      RES_X="${2:?--res requires width}xheight}"
+      RES_X="${2:?--res requires WIDTHxHEIGHT}"
       RES_Y="${RES_X#*x}"
       RES_X="${RES_X%x*}"
       shift 2

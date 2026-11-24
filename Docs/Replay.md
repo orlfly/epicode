@@ -1,6 +1,6 @@
 # 重演与事件日志
 
-本文描述 `redesign-sandbox-director` 的事件溯源格式、检查点、ghost/resim、历史分支、保留策略和重演作业。权威世界由 `EpicodeSandbox` 持有，日志与检查点用于复盘、分支和 Take 渲染，不参与 UE Actor 投影。
+本文描述已归档变更 `redesign-sandbox-director` 的事件溯源格式、检查点、ghost/resim、历史分支、保留策略和重演作业。权威世界由 `EpicodeSandbox` 持有，日志与检查点用于复盘、分支和 Take 渲染，不参与 UE Actor 投影。
 
 ## 目录布局
 

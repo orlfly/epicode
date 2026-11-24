@@ -1,5 +1,6 @@
 #include "EpicodeNetworkCharacter.h"
 
+#include "EpicodeLocalIK.h"
 #include "EpicodeNetworkModule.h"
 #include "EpicodeNetworkSubsystem.h"
 #include "Animation/AnimInstance.h"
@@ -39,6 +40,9 @@ AEpicodeNetworkCharacter::AEpicodeNetworkCharacter()
 	Movement->NetworkSimulatedSmoothRotationTime = 0.05f;
 	Movement->bIgnoreBaseRotation = false;
 	PrimaryActorTick.bCanEverTick = true;
+
+	LocalIKComponent = CreateDefaultSubobject<UEpicodeLocalIKComponent>(TEXT("LocalIK"));
+	LocalIKComponent->SetIsReplicated(false);
 }
 
 void AEpicodeNetworkCharacter::BeginPlay()
@@ -278,6 +282,10 @@ void AEpicodeNetworkCharacter::ApplyLocalIKCorrections(double InHandWeight, doub
 		FEpicodePerformanceRules::ClampIKWeight(InHandWeight),
 		FEpicodePerformanceRules::ClampIKWeight(InFootWeight),
 		FEpicodePerformanceRules::ClampIKWeight(InLookAtWeight));
+	if (LocalIKComponent)
+	{
+		LocalIKComponent->SetIKWeights(LocalIKWeights);
+	}
 }
 
 void AEpicodeNetworkCharacter::ServerRequestAction_Implementation(const FString& InActionTag, bool bInterrupt, float InDurationSeconds)

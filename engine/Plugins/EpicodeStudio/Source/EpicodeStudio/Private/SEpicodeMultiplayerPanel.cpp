@@ -1,6 +1,7 @@
 #include "SEpicodeMultiplayerPanel.h"
 
 #include "EpicodeCommand.h"
+#include "EpicodeControlApiClient.h"
 #include "EpicodeEngineSubsystem.h"
 #include "Widgets/Input/SButton.h"
 #include "Widgets/Input/SEditableTextBox.h"
@@ -20,6 +21,7 @@ namespace
 void SEpicodeMultiplayerPanel::Construct(const FArguments& InArgs)
 {
 	ViewModel = FEpicodeMultiplayerViewModel::MakeEmpty();
+	ControlApiClient = MakeShared<FEpicodeControlApiClient>();
 	ChildSlot
 	[
 		SNew(SVerticalBox)
@@ -29,7 +31,37 @@ void SEpicodeMultiplayerPanel::Construct(const FArguments& InArgs)
 		+ SVerticalBox::Slot().FillHeight(0.25f)[BuildPerformerPanel()]
 		+ SVerticalBox::Slot().FillHeight(0.25f)[BuildDirectorPanel()]
 	];
+	if (ServerInput.IsValid())
+	{
+		ServerInput->SetText(FText::FromString(TEXT("http://127.0.0.1:8710")));
+	}
+	if (TokenInput.IsValid())
+	{
+		TokenInput->SetIsPassword(true);
+	}
+	SetConnectionStatus(TEXT("Local mode"));
 	Refresh();
+
+	TWeakPtr<SEpicodeMultiplayerPanel> WeakThis = SharedThis(this);
+	PollHandle = FTSTicker::GetCoreTicker().AddTicker(
+		FTickerDelegate::CreateLambda([WeakThis](float DeltaTime)
+		{
+			if (const TSharedPtr<SEpicodeMultiplayerPanel> Pinned = WeakThis.Pin())
+			{
+				return Pinned->HandlePollTick(DeltaTime);
+			}
+			return false;
+		}),
+		1.0f);
+}
+
+SEpicodeMultiplayerPanel::~SEpicodeMultiplayerPanel()
+{
+	if (PollHandle.IsValid())
+	{
+		FTSTicker::GetCoreTicker().RemoveTicker(PollHandle);
+		PollHandle.Reset();
+	}
 }
 
 TSharedRef<SWidget> SEpicodeMultiplayerPanel::MakeInput(const FString& Label, TSharedPtr<SEditableTextBox>& OutInput, const FString& Hint)
@@ -60,13 +92,17 @@ TSharedRef<SWidget> SEpicodeMultiplayerPanel::BuildConnectionPanel()
 		[
 			SNew(STextBlock).Text(FText::FromString(TEXT("Session")))
 		]
-		+ SVerticalBox::Slot().AutoHeight()[MakeInput(TEXT("Server"), ServerInput, TEXT("127.0.0.1:7777"))]
+		+ SVerticalBox::Slot().AutoHeight()[MakeInput(TEXT("API"), ServerInput, TEXT("http://127.0.0.1:8710"))]
+		+ SVerticalBox::Slot().AutoHeight()[MakeInput(TEXT("Token"), TokenInput, TEXT("Bearer token"))]
 		+ SVerticalBox::Slot().AutoHeight()[MakeInput(TEXT("Scene"), SceneInput, TEXT("scene id"))]
 		+ SVerticalBox::Slot().AutoHeight()[MakeInput(TEXT("Player"), PlayerNameInput, TEXT("Player"))]
 		+ SVerticalBox::Slot().AutoHeight()[MakeInput(TEXT("Role"), RoleInput, TEXT("performer"))]
 		+ SVerticalBox::Slot().AutoHeight()
 		[
 			SNew(SHorizontalBox)
+			+ SHorizontalBox::Slot().AutoWidth().Padding(4.0f)[MakeButton(TEXT("Connect"), [this]() { ConnectRemote(); })]
+			+ SHorizontalBox::Slot().AutoWidth().Padding(4.0f)[MakeButton(TEXT("Disconnect"), [this]() { DisconnectRemote(); })]
+			+ SHorizontalBox::Slot().AutoWidth().Padding(4.0f)[MakeButton(TEXT("Local"), [this]() { UseLocalMode(); })]
 			+ SHorizontalBox::Slot().AutoWidth().Padding(4.0f)[MakeButton(TEXT("Create"), [this]() { CreateSession(); })]
 			+ SHorizontalBox::Slot().AutoWidth().Padding(4.0f)[MakeButton(TEXT("Join"), [this]() { JoinSession(); })]
 			+ SHorizontalBox::Slot().AutoWidth().Padding(4.0f)[MakeButton(TEXT("Refresh"), [this]() { Refresh(); })]
@@ -82,6 +118,7 @@ TSharedRef<SWidget> SEpicodeMultiplayerPanel::BuildConnectionPanel()
 TSharedRef<SWidget> SEpicodeMultiplayerPanel::BuildStatePanel()
 {
 	return SNew(SVerticalBox)
+		+ SVerticalBox::Slot().AutoHeight().Padding(4.0f)[SAssignNew(ConnectionText, STextBlock).Text(FText::FromString(TEXT("Local mode")))]
 		+ SVerticalBox::Slot().AutoHeight().Padding(4.0f)[SAssignNew(StatusText, STextBlock).Text(FText::FromString(TEXT("No active session")))]
 		+ SVerticalBox::Slot().AutoHeight().Padding(4.0f)[SAssignNew(ReconnectText, STextBlock).Text(FText::FromString(TEXT("All players connected.")))];
 }
@@ -130,11 +167,26 @@ void SEpicodeMultiplayerPanel::SetViewModelSnapshot(const TSharedPtr<FJsonObject
 	DirectorText->SetText(FText::FromString(FString::Join(ViewModel->GetDirectorEntries(), TEXT("\n"))));
 }
 
+void SEpicodeMultiplayerPanel::SetConnectionStatus(const FString& InStatus)
+{
+	ConnectionStatus = InStatus;
+	if (ConnectionText.IsValid())
+	{
+		ConnectionText->SetText(FText::FromString(InStatus));
+	}
+}
+
 void SEpicodeMultiplayerPanel::Refresh()
 {
+	if (bRemoteMode)
+	{
+		PollRemote();
+		return;
+	}
 	UEpicodeEngineSubsystem* Engine = UEpicodeEngineSubsystem::Get();
 	if (!Engine)
 	{
+		SetConnectionStatus(TEXT("Local engine subsystem is unavailable."));
 		return;
 	}
 	const FEpicodeCommandResult Result = Engine->ExecuteCommand(TEXT("session.snapshot"), MakeShared<FJsonObject>(), FEpicodeCommandContext());
@@ -151,67 +203,289 @@ void SEpicodeMultiplayerPanel::Refresh()
 	}
 }
 
-void SEpicodeMultiplayerPanel::CreateSession()
+void SEpicodeMultiplayerPanel::ConnectRemote()
 {
-	UEpicodeEngineSubsystem* Engine = UEpicodeEngineSubsystem::Get();
-	if (!Engine)
+	const FString RawUrl = GetInputText(ServerInput);
+	if (!FEpicodeControlApiClient::IsValidBaseUrl(RawUrl))
+	{
+		SetConnectionStatus(TEXT("Invalid control API address. Use http://host:port."));
+		return;
+	}
+	if (!ControlApiClient)
+	{
+		ControlApiClient = MakeShared<FEpicodeControlApiClient>();
+	}
+	ControlApiClient->SetBaseUrl(RawUrl);
+	ControlApiClient->SetToken(GetInputText(TokenInput));
+	ControlApiClient->SetTimeoutSeconds(3.0);
+	SetConnectionStatus(TEXT("Connecting to control API..."));
+
+	TWeakPtr<SEpicodeMultiplayerPanel> WeakThis = SharedThis(this);
+	ControlApiClient->Request(TEXT("system.health"), MakeShared<FJsonObject>(),
+		[WeakThis](const FEpicodeControlApiResponse& Response)
+		{
+			const TSharedPtr<SEpicodeMultiplayerPanel> Pinned = WeakThis.Pin();
+			if (!Pinned.IsValid())
+			{
+				return;
+			}
+			if (!Response.bSuccess)
+			{
+				Pinned->bRemoteMode = false;
+				Pinned->bConnected = false;
+				Pinned->SetConnectionStatus(EpicodeControlApiStatusText(Response));
+				return;
+			}
+			Pinned->bRemoteMode = true;
+			Pinned->bConnected = true;
+			const FString Masked = Pinned->ControlApiClient.IsValid()
+				? Pinned->ControlApiClient->GetMaskedToken()
+				: FString();
+			Pinned->SetConnectionStatus(FString::Printf(TEXT("Remote connected: %s token=%s"),
+				Pinned->ControlApiClient.IsValid() ? *Pinned->ControlApiClient->GetBaseUrl() : TEXT(""),
+				Masked.IsEmpty() ? TEXT("****") : *Masked));
+			Pinned->Refresh();
+		});
+}
+
+void SEpicodeMultiplayerPanel::DisconnectRemote()
+{
+	bRemoteMode = false;
+	bConnected = false;
+	bPollInFlight = false;
+	SetConnectionStatus(TEXT("Local mode (remote disconnected)."));
+	Refresh();
+}
+
+void SEpicodeMultiplayerPanel::UseLocalMode()
+{
+	DisconnectRemote();
+	SetConnectionStatus(TEXT("Local mode"));
+}
+
+void SEpicodeMultiplayerPanel::SendRemoteCommand(const FString& Method, const TSharedPtr<FJsonObject>& Params)
+{
+	if (!bRemoteMode || !bConnected || !ControlApiClient.IsValid())
+	{
+		SetConnectionStatus(TEXT("Remote mode is not connected. Use Connect or Local."));
+		return;
+	}
+	TWeakPtr<SEpicodeMultiplayerPanel> WeakThis = SharedThis(this);
+	ControlApiClient->Request(Method, Params,
+		[WeakThis, Method](const FEpicodeControlApiResponse& Response)
+		{
+			const TSharedPtr<SEpicodeMultiplayerPanel> Pinned = WeakThis.Pin();
+			if (!Pinned.IsValid())
+			{
+				return;
+			}
+			if (!Response.bSuccess)
+			{
+				Pinned->SetConnectionStatus(EpicodeControlApiStatusText(Response));
+				return;
+			}
+			Pinned->ApplyRemoteResponse(Method, Response.Result, TEXT("OK"));
+		});
+}
+
+void SEpicodeMultiplayerPanel::ApplyRemoteResponse(const FString& Method,
+	const TSharedPtr<FJsonObject>& Result, const FString& Status)
+{
+	if (Result.IsValid()
+		&& (Result->HasField(TEXT("players"))
+			|| Result->HasField(TEXT("characters"))
+			|| Result->HasField(TEXT("state"))
+			|| Result->HasField(TEXT("sessionId"))))
+	{
+		SetViewModelSnapshot(Result);
+	}
+	SetConnectionStatus(FString::Printf(TEXT("Remote %s: %s"), *Method, *Status));
+}
+
+void SEpicodeMultiplayerPanel::PollRemote()
+{
+	if (!bRemoteMode || !bConnected || bPollInFlight || !ControlApiClient.IsValid())
 	{
 		return;
 	}
+	bPollInFlight = true;
+	TWeakPtr<SEpicodeMultiplayerPanel> WeakThis = SharedThis(this);
+	ControlApiClient->Request(TEXT("session.snapshot"), MakeShared<FJsonObject>(),
+		[WeakThis](const FEpicodeControlApiResponse& Response)
+		{
+			const TSharedPtr<SEpicodeMultiplayerPanel> Pinned = WeakThis.Pin();
+			if (!Pinned.IsValid())
+			{
+				return;
+			}
+			Pinned->bPollInFlight = false;
+			if (Response.bSuccess && Response.Result.IsValid())
+			{
+				Pinned->SetViewModelSnapshot(Response.Result);
+				return;
+			}
+			if (Response.ErrorCode == TEXT("SESSION_NOT_FOUND"))
+			{
+				Pinned->SetConnectionStatus(TEXT("Remote connected; no active session."));
+				return;
+			}
+			Pinned->SetConnectionStatus(EpicodeControlApiStatusText(Response));
+		});
+}
+
+bool SEpicodeMultiplayerPanel::HandlePollTick(float DeltaTime)
+{
+	PollRemote();
+	return true;
+}
+
+bool SEpicodeMultiplayerPanel::ConnectRemoteForTest(const FString& InBaseUrl, const FString& InToken)
+{
+	const bool bValid = FEpicodeControlApiClient::IsValidBaseUrl(InBaseUrl);
+	if (ServerInput.IsValid())
+	{
+		ServerInput->SetText(FText::FromString(InBaseUrl));
+	}
+	if (TokenInput.IsValid())
+	{
+		TokenInput->SetText(FText::FromString(InToken));
+	}
+	if (bValid)
+	{
+		ConnectRemote();
+	}
+	else
+	{
+		SetConnectionStatus(TEXT("Invalid control API address. Use http://host:port."));
+	}
+	return bValid;
+}
+
+void SEpicodeMultiplayerPanel::UseLocalModeForTest()
+{
+	UseLocalMode();
+}
+
+void SEpicodeMultiplayerPanel::SetRemoteStateForTest(bool bInRemoteMode, bool bInConnected, const FString& InStatus)
+{
+	bRemoteMode = bInRemoteMode;
+	bConnected = bInConnected;
+	SetConnectionStatus(InStatus);
+}
+
+bool SEpicodeMultiplayerPanel::SendRemoteCommandForTest(const FString& Method, const TSharedPtr<FJsonObject>& Params)
+{
+	if (!bRemoteMode || !bConnected || !ControlApiClient.IsValid())
+	{
+		return false;
+	}
+	SendRemoteCommand(Method, Params);
+	return true;
+}
+
+void SEpicodeMultiplayerPanel::SetControlApiClientForTest(const TSharedPtr<FEpicodeControlApiClient>& InClient)
+{
+	ControlApiClient = InClient;
+}
+
+FString SEpicodeMultiplayerPanel::GetModeTextForTest() const
+{
+	if (!bRemoteMode)
+	{
+		return TEXT("Local");
+	}
+	return bConnected ? TEXT("Remote") : TEXT("Remote (disconnected)");
+}
+
+FString SEpicodeMultiplayerPanel::GetServerUrlForTest() const
+{
+	return GetInputText(ServerInput);
+}
+
+void SEpicodeMultiplayerPanel::CreateSession()
+{
 	TSharedPtr<FJsonObject> Params = MakeShared<FJsonObject>();
 	Params->SetStringField(TEXT("sceneId"), GetInputText(SceneInput));
 	Params->SetStringField(TEXT("playerId"), GetInputText(PlayerNameInput));
 	Params->SetStringField(TEXT("displayName"), GetInputText(PlayerNameInput));
+	if (bRemoteMode)
+	{
+		SendRemoteCommand(TEXT("session.create"), Params);
+		return;
+	}
+	UEpicodeEngineSubsystem* Engine = UEpicodeEngineSubsystem::Get();
+	if (!Engine)
+	{
+		SetConnectionStatus(TEXT("Local engine subsystem is unavailable."));
+		return;
+	}
 	Engine->ExecuteCommand(TEXT("session.create"), Params, FEpicodeCommandContext());
 	Refresh();
 }
 
 void SEpicodeMultiplayerPanel::JoinSession()
 {
-	UEpicodeEngineSubsystem* Engine = UEpicodeEngineSubsystem::Get();
-	if (!Engine)
-	{
-		return;
-	}
 	TSharedPtr<FJsonObject> Params = MakeShared<FJsonObject>();
 	Params->SetStringField(TEXT("playerId"), GetInputText(PlayerNameInput));
 	Params->SetStringField(TEXT("displayName"), GetInputText(PlayerNameInput));
 	Params->SetStringField(TEXT("role"), TEXT("performer"));
+	if (bRemoteMode)
+	{
+		SendRemoteCommand(TEXT("session.join"), Params);
+		return;
+	}
+	UEpicodeEngineSubsystem* Engine = UEpicodeEngineSubsystem::Get();
+	if (!Engine)
+	{
+		SetConnectionStatus(TEXT("Local engine subsystem is unavailable."));
+		return;
+	}
 	Engine->ExecuteCommand(TEXT("session.join"), Params, FEpicodeCommandContext());
 	Refresh();
 }
 
 void SEpicodeMultiplayerPanel::EndSession()
 {
+	TSharedPtr<FJsonObject> Params = MakeShared<FJsonObject>();
+	Params->SetStringField(TEXT("playerId"), GetInputText(PlayerNameInput));
+	if (bRemoteMode)
+	{
+		SendRemoteCommand(TEXT("session.end"), Params);
+		return;
+	}
 	UEpicodeEngineSubsystem* Engine = UEpicodeEngineSubsystem::Get();
 	if (!Engine)
 	{
+		SetConnectionStatus(TEXT("Local engine subsystem is unavailable."));
 		return;
 	}
-	TSharedPtr<FJsonObject> Params = MakeShared<FJsonObject>();
-	Params->SetStringField(TEXT("playerId"), GetInputText(PlayerNameInput));
 	Engine->ExecuteCommand(TEXT("session.end"), Params, FEpicodeCommandContext());
 	Refresh();
 }
 
 void SEpicodeMultiplayerPanel::KickSelectedPlayer()
 {
-	UEpicodeEngineSubsystem* Engine = UEpicodeEngineSubsystem::Get();
-	if (!Engine)
-	{
-		return;
-	}
 	TSharedPtr<FJsonObject> Params = MakeShared<FJsonObject>();
 	Params->SetStringField(TEXT("requesterId"), GetInputText(PlayerNameInput));
 	Params->SetStringField(TEXT("targetPlayerId"), GetInputText(TargetPlayerInput));
+	if (bRemoteMode)
+	{
+		SendRemoteCommand(TEXT("session.kick"), Params);
+		return;
+	}
+	UEpicodeEngineSubsystem* Engine = UEpicodeEngineSubsystem::Get();
+	if (!Engine)
+	{
+		SetConnectionStatus(TEXT("Local engine subsystem is unavailable."));
+		return;
+	}
 	Engine->ExecuteCommand(TEXT("session.kick"), Params, FEpicodeCommandContext());
 	Refresh();
 }
 
 void SEpicodeMultiplayerPanel::AssignCharacter()
 {
-	UEpicodeEngineSubsystem* Engine = UEpicodeEngineSubsystem::Get();
-	if (!Engine || !ViewModel->CanAssignCharacters())
+	if (!ViewModel->CanAssignCharacters())
 	{
 		return;
 	}
@@ -219,14 +493,24 @@ void SEpicodeMultiplayerPanel::AssignCharacter()
 	Params->SetStringField(TEXT("requesterId"), GetInputText(PlayerNameInput));
 	Params->SetStringField(TEXT("targetPlayerId"), GetInputText(TargetPlayerInput));
 	Params->SetStringField(TEXT("characterId"), GetInputText(CharacterIdInput));
+	if (bRemoteMode)
+	{
+		SendRemoteCommand(TEXT("session.assignCharacter"), Params);
+		return;
+	}
+	UEpicodeEngineSubsystem* Engine = UEpicodeEngineSubsystem::Get();
+	if (!Engine)
+	{
+		SetConnectionStatus(TEXT("Local engine subsystem is unavailable."));
+		return;
+	}
 	Engine->ExecuteCommand(TEXT("session.assignCharacter"), Params, FEpicodeCommandContext());
 	Refresh();
 }
 
 void SEpicodeMultiplayerPanel::SetPlayerRole()
 {
-	UEpicodeEngineSubsystem* Engine = UEpicodeEngineSubsystem::Get();
-	if (!Engine || !ViewModel->CanManage())
+	if (!ViewModel->CanManage())
 	{
 		return;
 	}
@@ -234,6 +518,17 @@ void SEpicodeMultiplayerPanel::SetPlayerRole()
 	Params->SetStringField(TEXT("requesterId"), GetInputText(PlayerNameInput));
 	Params->SetStringField(TEXT("targetPlayerId"), GetInputText(TargetPlayerInput));
 	Params->SetStringField(TEXT("role"), GetInputText(RoleInput));
+	if (bRemoteMode)
+	{
+		SendRemoteCommand(TEXT("session.setRole"), Params);
+		return;
+	}
+	UEpicodeEngineSubsystem* Engine = UEpicodeEngineSubsystem::Get();
+	if (!Engine)
+	{
+		SetConnectionStatus(TEXT("Local engine subsystem is unavailable."));
+		return;
+	}
 	Engine->ExecuteCommand(TEXT("session.setRole"), Params, FEpicodeCommandContext());
 	Refresh();
 }

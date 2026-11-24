@@ -20,7 +20,8 @@ public class EpicodeNetwork : ModuleRules
 			"Networking",
 			"AIModule",
 			"NavigationSystem",
-			"Projects"
+			"Projects",
+			"IKRig"
 		});
 	}
 }

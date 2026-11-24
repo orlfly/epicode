@@ -164,7 +164,8 @@ stateDiagram-v2
 - 表情强度在服务器和 JSON 反序列化两处校验，微表情通过 `ApplyLocalMicroExpression` 只保留在本地。
 - `Live Link` 或音频不可用时自动降级为 `preset`，返回 `LIVELINK_UNAVAILABLE` / `AUDIO_UNAVAILABLE` 警告。
 - Motion Matching 请求只有在 `motionDataAvailable=true` 时激活，否则回退标准移动并返回 `MOTION_DATA_UNAVAILABLE`。
-- 手部、脚部和视线 IK 权重由 `ApplyLocalIKCorrections` 限制在 0–1，只影响本地表现，不写入复制状态。
+- 手部、脚部和视线 IK 通过 `UEpicodeLocalIKComponent` 在本地客户端求解。权重由 `ApplyLocalIKCorrections` 限制在 0–1；服务器、专用服务器和远程代理跳过求解；`LocalIKWeights` 不复制，`performance` 快照不包含本地 IK 字段。
+- 本地 IK 需要配置 `LocalIK.IKRigAsset`、手部/脚部/视线目标名和骨骼名。资产、骨骼或动画实例缺失时记录一次 `LOCAL_IK_UNAVAILABLE` 警告并跳过，不影响服务器权威变换。
 - 每个动作、表情和口型变更发布带 `sequence` 和 `timestamp` 的 `performance.*` 事件，快照字段 `performanceEvents` 返回这些事件。
 
 ## 物品、库存、制作与建造
@@ -264,7 +265,9 @@ cd engine
 - `EPICODE_GAME_PORT`、`EPICODE_SESSION_SCENE`、`EPICODE_SERVER`、`EPICODE_PLAYER_NAME` 可覆盖默认值。
 - 额外参数放在 `--` 之后，或直接作为未知参数透传给 Unreal。
 - 当前安装的引擎发行版不支持独立 `Server` 构建目标，`Server.sh` 会优先使用 `Binaries/Linux/EpicodeVideoServer`，否则回退到 `UnrealEditor-Cmd -server`。
-- `NetworkSmoke.sh` 自动生成双角色场景夹具，启动服务器和两个无界面客户端，校验出生点、外观、远程插值、移动漂移、断线重连和 `session.json` 所有权。摘要写入 `Saved/Logs/network-smoke.log`，包含漂移样本数、最近 10 个样本最大漂移、表演/世界事件计数和快照角色映射；成功后删除夹具。
+- `Build.sh` 的 Server 目标失败时返回退出码 6，并在 `Saved/Logs/build-server-target.log` 记录请求目标、引擎错误和 `serverMode=editor-fallback`。`Server.sh` 写入 `Saved/Logs/server-fallback.log`，实际模式通过 `system.health.network.serverMode`、`serverTargetSupported`、`fallbackReason` 和 `serverBinary` 暴露。
+- `Client.sh` 支持 `--mode auto|game|editor`；`auto` 优先 Game 二进制，Game 缺失或启动退出时回退 `UnrealEditor -game`，并写入 `Saved/Logs/client-fallback.log` 的 `clientMode`、实际二进制和回退原因。
+- `NetworkSmoke.sh` 自动生成双角色场景夹具，启动服务器和两个无界面客户端，校验出生点、外观、远程插值、移动漂移、断线重连和 `session.json` 所有权。摘要写入 `Saved/Logs/network-smoke.log` 和 `network-smoke-summary.json`，包含 `sampleCount`、`maxRecentDrift`、`rttMs`、`packetLoss`、`serverMode` 和快照角色映射；未采样的 RTT/丢包写 `not-measured`。成功后删除夹具。
 - 服务器和客户端默认用 `stdbuf -oL` 行缓冲日志，避免冒烟等待日志时受标准输出块缓冲影响。
 
 ## 配置
@@ -282,9 +285,10 @@ DefaultCharacterMesh=
 OnlineSubsystem=LAN
 bAllowRemote=False
 bAutoExportSession=True
+LocalIK=(bEnabled=False,IKRigAsset="",HandGoalName="HandRight",FootLeftGoalName="FootLeft",FootRightGoalName="FootRight",LookAtGoalName="LookAt",HandBoneName="hand_r",FootLeftBoneName="foot_l",FootRightBoneName="foot_r",LookAtBoneName="head",HandTargetOffset=(X=0,Y=0,Z=0),FootTargetOffset=(X=0,Y=0,Z=2),LookAtDistance=500,bDrawDebug=False)
 ```
 
-`system.health` 的 `network` 字段包含 `module`、`moduleLoaded`、`onlineSubsystem`、`port`、`maxPlayers`、`sessionRoot`、`state`、`sessionId`、`sceneId`、`playerCount`、`connectedPlayers`、`lastError`。启用沙盒桥时还会带 `sandbox` 对象：`state`、`sessionId`、`digest`、`eventSequence`、`seed`、`replayable`、`legacy`、`events[]`。
+`system.health` 的 `network` 字段包含 `module`、`moduleLoaded`、`onlineSubsystem`、`port`、`maxPlayers`、`sessionRoot`、`state`、`sessionId`、`sceneId`、`playerCount`、`connectedPlayers`、`lastError`、`serverMode`、`serverTargetSupported`、`fallbackReason`、`serverBinary` 和 `clientMode`。`session.snapshot` 也包含这五个运行模式字段。启用沙盒桥时还会带 `sandbox` 对象：`state`、`sessionId`、`digest`、`eventSequence`、`seed`、`replayable`、`legacy`、`events[]`。
 
 ## 当前边界
 
@@ -303,7 +307,7 @@ bAutoExportSession=True
 - 复制表演状态、动作队列、中断、表情强度、口型降级、Motion Matching 回退和表演事件。
 - 网络冒烟自动触发动作、表情和口型，快照包含 6 条 `performance.*` 事件。
 - 会话级物品、库存、制作和建造权威状态，包含材料扣除、完成产出、撤销返还和世界事件。
-- Studio 多人会话面板（本进程会话视图）、玩家/角色列表、角色分配、表演者 HUD、导演控制台和重连/结束状态。
+- Studio 多人会话面板（本进程和远程控制 API 两种模式）、令牌掩码、1 秒异步轮询、玩家/角色列表、角色分配、表演者 HUD、导演控制台和重连/结束状态。
 - 双客户端网络冒烟覆盖动作、表情、口型、拾取、制作、建造、重连和事件计数。
 - 网络会话与沙盒世界生命周期桥接，演员阵容绑定、角色槽位冲突、重连恢复和 Viewer 只读在桥接层强制执行。
 - 沙盒投影命令覆盖角色、NPC、道具、物品、建造物、资源、灯光和相机，并生成不可见/移除实体的清理命令。
@@ -312,13 +316,23 @@ bAutoExportSession=True
 
 进行中：
 
-- 手部/脚部 IK 和视线跟随的实际动画应用；当前只实现本地权重限制，未接入 IK Rig。
 - 物品 Actor 级复制和建造 Actor 投影；当前世界状态保存在会话记录中，通过命令读写。
-- `EpicodeControlAPI` 是 Runtime 模块，服务器和编辑器/Headless 进程都会监听 HTTP/WS；Game 客户端不绑定控制端口。Studio 面板的远程连接仍需后续接入 HTTP 客户端。
-- `EpicodeVideo` Game 目标可构建，但未打包的 Game 二进制启动时崩溃（`BufferReader` 断言）；当前 `Client.sh` 默认用 `UnrealEditor -game`，独立客户端包需要后续打包和运行时修复。
+- `EpicodeControlAPI` 是 Runtime 模块，服务器和编辑器/Headless 进程都会监听 HTTP/WS；Game 客户端不绑定控制端口。Studio 面板已接入远程 JSON-RPC，但尚未接入 WebSocket 事件推送。
+- `EpicodeVideo` Game 目标可构建，但未打包的 Game 二进制启动时可能崩溃（`BufferReader` 断言）；`Client.sh` 的 `auto` 会尝试 Game 并回退 `UnrealEditor -game`，独立客户端包需要后续打包和运行时修复。
 - 真实带宽、延迟和丢包曲线仍需在带网络模拟的环境中单独采样。
 
 ## 网络基线
+
+2026-11-24 双客户端冒烟（`Saved/Logs/network-smoke-summary.json`）：
+
+| 指标 | 观测值 |
+| --- | --- |
+| 服务器模式 | `editor-fallback`，`UnrealEditor-Cmd -server` |
+| 漂移样本 | 58 |
+| 最近 10 个样本最大漂移 | 85.76 cm（阈值 300 cm） |
+| RTT | `not-measured` |
+| 丢包 | `not-measured` |
+| 采样范围 | `local-loopback` |
 
 2026-11-04 双客户端冒烟（`Saved/Logs/network-smoke.log`）：
 
@@ -355,6 +369,8 @@ cd engine
 - `Epicode.Network.Reconnect`
 - `Epicode.Network.Permissions`
 - `Epicode.Network.Ownership`
+- `Epicode.Network.IK`
+- `Epicode.Network.ServerFallback`
 - `Epicode.Network.Snapshot`
 - `Epicode.Network.Commands`
 - `Epicode.Network.SceneLoad`

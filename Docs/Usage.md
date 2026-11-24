@@ -701,13 +701,13 @@ curl -sS -X POST http://127.0.0.1:8710/api/v1/command \
 | 脚本 | 用途 |
 | --- | --- |
 | `Scripts/env.sh --check` | 检查引擎路径和工程文件 |
-| `Scripts/Build.sh` | 构建编辑器目标 |
+| `Scripts/Build.sh` | 构建编辑器目标；`TARGET=EpicodeVideoServer` 失败时写回退日志并返回 6 |
 | `Scripts/Editor.sh` | 启动带界面的编辑器 |
 | `Scripts/Headless.sh` | 启动无界面 API 服务 |
 | `Scripts/Test.sh` | 运行 `Epicode.*` 自动化测试 |
 | `Scripts/Smoke.sh` | 启动服务并执行 API、场景、导入冒烟 |
 | `Scripts/Server.sh` | 启动游戏服务器和控制 API，支持场景、端口和额外 Unreal 参数 |
-| `Scripts/Client.sh` | 启动表演者客户端并连接服务器 |
+| `Scripts/Client.sh` | 启动表演者客户端并连接服务器，`--mode` 支持 auto、game、editor |
 | `Scripts/Director.sh` | 以 Director 角色启动客户端并注入制作包 |
 | `Scripts/Viewer.sh` | 启动只读 Viewer，支持相机模式和令牌 |
 | `Scripts/AgentSmoke.sh` | 验证纯 HTTP Agent 加入、租约、移动和释放 |
@@ -716,6 +716,7 @@ curl -sS -X POST http://127.0.0.1:8710/api/v1/command \
 | `Scripts/SandboxSmoke.sh` | 验证制作包、沙盒、NPC、资源和导演工作流 |
 | `Scripts/Replay.sh` | 运行 `Epicode.Replay` 自动化重演验证 |
 | `Scripts/ReplaySmoke.sh` | 验证 journal、ghost、resim、分支和清理 |
+| `Scripts/CollectEvidence.sh` | 汇总构建、测试和五个冒烟证据到 `acceptance-summary.json` |
 | `Scripts/Clean.sh` | 删除工程生成物，不触碰引擎安装 |
 
 冒烟脚本常用变量：
@@ -880,7 +881,7 @@ Studio 按场景 revision 轮询刷新。外部 API 修改场景后，切换页�
 
 多人会话从已保存场景启动，运行时状态只写 `Saved/Epicode/Sessions/<sessionId>/`，不会修改作者场景。启动服务器和客户端：
 
-编辑器内也可从 `Window > Epicode Multiplayer` 打开多人面板，输入场景和玩家名后创建或加入本进程会话；服务器地址输入框当前仅预留，面板尚未连接专用服务器。玩家列表、角色分配、表演者 HUD 和导演控制台都在同一面板中查看。
+编辑器内也可从 `Window > Epicode Multiplayer` 打开多人面板。`API` 默认 `http://127.0.0.1:8710`，`Token` 填控制 API 的 Bearer 令牌；点 `Connect` 后进入远程模式，`Disconnect` 或 `Local` 回到本进程会话。远程模式每 1 秒异步轮询 `session.snapshot`，创建、加入、结束、踢人、分配角色和修改角色都通过 `/api/v1/rpc` 发送。玩家列表、角色分配、表演者 HUD 和导演控制台都在同一面板中查看。
 
 ```bash
 cd engine
@@ -916,7 +917,9 @@ Viewer 使用 `Saved/Epicode/viewer-token` 或 `--token`，不占表演者槽位
 
 自动化客户端可通过 `session.create`、`session.join`、`session.snapshot` 和 `session.export` 管理会话。角色权限、所有权、重连和错误码见 [多人协同基线](Multiplayer.md)。
 
-当前运行时 UE 角色复制层已实现并通过双客户端冒烟；服务器和编辑器/Headless 进程都启动 HTTP/WS 控制面。Studio 面板仍操作本进程会话，服务器地址输入尚未接入 HTTP 客户端。
+当前运行时 UE 角色复制层已实现并通过双客户端冒烟；服务器和编辑器/Headless 进程都启动 HTTP/WS 控制面。Studio 多人面板已接入远程 JSON-RPC，支持令牌、连接/断开、超时、401、领域错误和本进程/远程切换；尚未接入 WebSocket 事件推送。
+
+服务器和客户端启动模式会记录在 `Saved/Logs/server-fallback.log`、`client-fallback.log` 以及 `system.health.network`、`session.snapshot` 的 `serverMode`、`serverTargetSupported`、`fallbackReason`、`serverBinary`、`clientMode`。`Client.sh` 可用 `--mode auto|game|editor` 强制选择。当前引擎不支持独立 Server 目标时，`Build.sh` 返回退出码 6 并记录 `serverMode=editor-fallback`，不会把失败报告为成功。
 
 ## 12. 已知限制
 

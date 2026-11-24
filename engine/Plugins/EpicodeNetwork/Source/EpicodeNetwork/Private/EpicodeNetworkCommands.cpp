@@ -1,5 +1,6 @@
 #include "EpicodeNetworkCommands.h"
 
+#include "EpicodeRuntimeMode.h"
 #include "EpicodeCommand.h"
 #include "EpicodeNetworkCharacter.h"
 #include "EpicodeNetworkPlayerController.h"
@@ -105,6 +106,7 @@ namespace
 			}
 		}
 		TSharedPtr<FJsonObject> Snapshot = Session->ToJson();
+		FEpicodeRuntimeMode::Resolve().ApplyToJson(Snapshot);
 		const FEpicodeWorldState& WorldState = Subsystem.GetWorldState();
 		TArray<TSharedPtr<FJsonValue>> Items;
 		for (const FEpicodeItemRecord& Item : WorldState.GetItems())

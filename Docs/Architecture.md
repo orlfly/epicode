@@ -73,7 +73,7 @@ flowchart LR
 - 作者平面维护场景 JSON，编辑器 Actor 是投影，写命令走事务和事件总线。
 - 运行时平面从已保存场景装载，会话状态只写 `Saved/Epicode/Sessions/<sessionId>/`，不覆盖作者场景。
 - 自动化客户端通过 HTTP/WebSocket 调用 `session.*`；玩家客户端通过 UE 复制和 RPC 交互。
-- 服务器和编辑器/Headless 进程都会启动 `EpicodeControlAPI`；HTTP/WS 命令作用于目标进程的会话，UE 客户端通过复制和 RPC 连接服务器。Studio 面板尚未接入服务器 HTTP 客户端。
+- 服务器和编辑器/Headless 进程都会启动 `EpicodeControlAPI`；HTTP/WS 命令作用于目标进程的会话，UE 客户端通过复制和 RPC 连接服务器。Studio 多人面板通过 `FEpicodeControlApiClient` 异步调用 `/api/v1/rpc`，可在本进程和远程服务器之间切换；HTTP/WS 仍在游戏线程执行命令。
 
 会话状态、权限矩阵、角色所有权、重连和导出约定见 `Docs/Multiplayer.md`。
 

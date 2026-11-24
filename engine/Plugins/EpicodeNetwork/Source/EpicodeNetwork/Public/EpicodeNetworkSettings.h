@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Engine/DeveloperSettings.h"
+#include "EpicodeLocalIK.h"
 #include "EpicodeNetworkSettings.generated.h"
 
 UCLASS(config = Epicode, defaultconfig, meta = (DisplayName = "Epicode Network"))
@@ -76,4 +77,7 @@ public:
 
 	UPROPERTY(EditAnywhere, Config, Category = "Session")
 	bool bAutoExportSession = true;
+
+	UPROPERTY(EditAnywhere, Config, Category = "Local IK")
+	FEpicodeLocalIKSettings LocalIK;
 };

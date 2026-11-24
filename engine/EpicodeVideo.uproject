@@ -21,6 +21,7 @@
 		{ "Name": "EpicodeEditorShell", "Enabled": true },
 		{ "Name": "EpicodeAssistant", "Enabled": true },
 		{ "Name": "EpicodeRender", "Enabled": true },
+		{ "Name": "IKRig", "Enabled": true },
 		{ "Name": "MovieRenderPipeline", "Enabled": true },
 		{ "Name": "WebSocketNetworking", "Enabled": true },
 		{ "Name": "USDImporter", "Enabled": true },

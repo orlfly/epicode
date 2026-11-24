@@ -196,3 +196,82 @@ FocusedEditor exit smoke: stock editor restored, requesting exit
 - sidecar 可选 HTTP 模式只监听 `127.0.0.1`，编辑器 C++ 客户端默认仍走 stdio；HTTP 模式用于本地诊断和外部客户端。
 - 视觉烟测使用 Mock 脚本，不验证真实模型输出质量；真实 Key/网络由用户配置。
 - 无 GPU 的自动化测试只验证 UI 逻辑和事务，不比较像素；本轮脚本烟测已用 `DISPLAY=:0` 抓取窗口截图。
+
+## 2026-11-24 多人基线收尾
+
+范围：`complete-multiplayer-baseline` 的构建回退、本地 IK、Studio 远程控制 API、网络证据和规格归档。
+
+### 构建与测试
+
+```bash
+cd engine
+source Scripts/env.sh
+"${BUILD_SH}" EpicodeVideoEditor Linux Development -project="${PROJECT_FILE}" -waitmutex -Clean
+./Scripts/Build.sh
+./Scripts/Test.sh
+```
+
+- 先清理 `EpicodeVideoEditor` 目标二进制，再重建；`Result: Succeeded`，日志 `Saved/Logs/build.log`，清理输出 `Saved/Logs/run-clean-target.log`。
+- 193 项 `Epicode.*` 测试全部 `Success`，0 项 `Fail`，`TEST COMPLETE. EXIT CODE: 0`，日志 `Saved/Logs/test.log`。
+- 新增 `Epicode.Network.IK` 覆盖本地 IK 权重、应用边界、骨骼混合和服务器快照隔离；新增 `Epicode.Network.ServerFallback` 覆盖 Server/Game 回退字段；新增 `Epicode.Studio.ControlApiClient` 和 `Epicode.Studio.MultiplayerRemote` 覆盖远程 JSON-RPC、401、超时、领域错误、令牌掩码和本进程回退。
+
+Server 目标回退验证：
+
+```bash
+TARGET=EpicodeVideoServer ./Scripts/Build.sh
+```
+
+返回退出码 6。`Saved/Logs/build-server-target.log` 包含引擎原始错误、`serverMode=editor-fallback`、`serverTargetSupported=0` 和回退原因。
+
+### 五个冒烟
+
+```bash
+./Scripts/SandboxSmoke.sh
+./Scripts/AgentSmoke.sh
+./Scripts/ViewerSmoke.sh
+./Scripts/ReplaySmoke.sh
+./Scripts/NetworkSmoke.sh
+```
+
+五个脚本均返回 0：
+
+- `SandboxSmoke.sh`：`Epicode sandbox smoke passed`。
+- `AgentSmoke.sh`：`Epicode agent smoke passed`。
+- `ViewerSmoke.sh`：`Epicode viewer smoke passed`，两个 Viewer 注册、第二个释放后回到 1 个 Viewer，回环基线写入 `viewer-smoke-baseline.json`。
+- `ReplaySmoke.sh`：journal、snapshot、ghost、resim、分支、保留和作业全部通过。
+- `NetworkSmoke.sh`：`Epicode network smoke passed`。
+
+网络摘要 `Saved/Logs/network-smoke-summary.json`：
+
+| 字段 | 值 |
+| --- | --- |
+| `serverMode` | `editor-fallback` |
+| `serverBinary` | `/usr/local/unreal/Engine/Binaries/Linux/UnrealEditor-Cmd` |
+| `sampleCount` | 58 |
+| `maxRecentDrift` | 85.76 cm |
+| `rttMs` | `not-measured` |
+| `packetLoss` | `not-measured` |
+| `measurementScope` | `local-loopback` |
+
+`server-fallback.log` 和 `client-fallback.log` 记录实际二进制、`clientMode=editor-game` 和回退原因。`system.health.network` 与 `session.snapshot` 返回 `serverMode`、`serverTargetSupported`、`fallbackReason`、`serverBinary`、`clientMode`。
+
+### Studio 与 IK
+
+- Studio 多人面板新增 `API`、`Token`、`Connect`、`Disconnect`、`Local`。远程模式通过 `/api/v1/rpc` 异步发送 `system.health`、`session.snapshot` 和会话写命令，1 秒轮询，令牌只显示掩码。
+- `UEpicodeLocalIKComponent` 在本地客户端读取 `IKRig` 资产，按手部、脚部和视线权重求解，服务器、专用服务器和远程代理跳过；缺少资产、骨骼或动画实例时记录一次 `LOCAL_IK_UNAVAILABLE` 警告。
+
+### 证据汇总
+
+```bash
+./Scripts/CollectEvidence.sh
+./Scripts/CollectEvidence.sh --check
+```
+
+`Saved/Logs/acceptance-summary.json` 中 `build=passed`、`tests.passed=193`、`tests.failed=0`、五个 `smoke` 均为 `passed`，`network.status=passed`。缺失日志的组写 `not-measured`。
+
+### 已知限制
+
+- 独立 `EpicodeVideoServer` 目标仍受当前 UE 5.8.4 发行版限制；服务器使用 `UnrealEditor-Cmd -server`。
+- 未打包的 `EpicodeVideo` Game 二进制启动仍可能触发 `BufferReader`；`Client.sh` 会回退到 `UnrealEditor -game`。
+- 本地 IK 需要配置实际 IK Rig 资产和骨骼名；默认配置关闭，仓库不附带 MetaHuman IK Rig。
+- RTT 和丢包只在本地回环冒烟，真实网络模拟值仍为 `not-measured`。

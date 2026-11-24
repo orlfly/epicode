@@ -50,13 +50,14 @@ Studio 写操作与导入接入编辑器事务，可直接使用编辑器撤销/
 
 `Window > Epicode Multiplayer` 打开独立多人面板，也可从同一 Window 菜单调用。面板分为连接、状态、玩家/角色、表演者 HUD 和导演控制台五块。
 
-- 连接：服务器地址输入框为后续跨进程连接预留，当前不发起远程连接；`Create` 调用本进程的 `session.create`，`Join` 调用 `session.join`，`End` 调用 `session.end`，`Target` + `Kick` 调用 `session.kick`。
+- 连接：`API` 输入控制面地址，默认 `http://127.0.0.1:8710`，`Token` 输入 Bearer 令牌。`Connect` 异步调用 `/api/v1/rpc` 的 `system.health`，成功后进入远程模式；`Disconnect` 或 `Local` 回到本进程命令模式。空地址回退默认地址，非法地址在状态行提示。
+- 命令：远程模式下 `Create`、`Join`、`End`、`Target + Kick`、`Set Role` 和 `Assign` 分别路由到 `session.create/join/end/kick/setRole/assignCharacter`；本进程模式仍操作编辑器内会话。远程错误显示在连接状态行，不更新本地快照。
 - 状态：显示 `No active session`、`Live`、`Reconnecting` 或 `Session ended`，并在断线时显示宽限期重连提示。
 - 玩家/角色：列出 `playerId [role]`、连接状态和 `characterId`，以及角色到玩家的映射。
 - 表演者 HUD：显示当前动作、动作队列长度、情绪、表情强度、说话状态和口型源；观察者显示空状态。
 - 导演控制台：列出玩家、相机和灯光入口；所有者可管理会话，观察者只读。
 
-面板只通过命令注册表读写会话，不直接修改 Actor 或场景 JSON。`FEpicodeMultiplayerViewModel` 负责解析快照并按角色计算按钮可用性，`Epicode.Studio.MultiplayerPanel`、`MultiplayerRoles`、`PerformerHud`、`DirectorConsole` 和 `SessionStates` 覆盖面板构造、权限、HUD 和状态显示。
+面板只通过命令注册表或控制 API 读写会话，不直接修改 Actor 或场景 JSON。`FEpicodeMultiplayerViewModel` 负责解析快照并按角色计算按钮可用性，`FEpicodeControlApiClient` 负责 JSON-RPC、超时、401、连接失败、领域错误和令牌掩码。`Epicode.Studio.MultiplayerPanel`、`MultiplayerRoles`、`PerformerHud`、`DirectorConsole`、`SessionStates`、`ControlApiClient` 和 `MultiplayerRemote` 覆盖面板、权限、HUD、状态和远程路由。
 
 ## Sandbox / Director Workspace
 
@@ -80,5 +81,5 @@ Studio 写操作与导入接入编辑器事务，可直接使用编辑器撤销/
 - 支持文件对话框多选、拖放到导入列表和导入结果定位；尚不支持拖放资产到视口自动绑定。
 - Render 页签只提供固定三帧 PNG 提交和取消；完整帧范围/格式/相机选择仍通过 `render.*` API 或命令行。
 - 列表为简单轮询，不订阅 WebSocket 事件。
-- 多人面板每 1 秒轮询本进程 `session.snapshot`，尚未接入 WebSocket 推送或专用服务器会话桥接；角色分配和角色修改通过命令面板或 API 完成，面板当前只展示和踢人。
+- 多人面板每 1 秒异步轮询 `session.snapshot`，尚未接入 WebSocket 推送；远程模式下轮询和命令都通过控制 API，令牌只以掩码显示。
 - 场景打开依赖编辑器关卡加载，切换时界面可能短暂阻塞。
