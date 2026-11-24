@@ -260,7 +260,7 @@
 
 ### Requirement: 方法覆盖范围
 
-控制 API SHALL 暴露与场景编排能力等价的方法，至少覆盖场景生命周期、场景库查询/切换/删除、实体增删改查、变换、角色创建与动画挂接、道具创建与材质物理、灯光创建与更新、环境参数与预设、相机创建与激活、资产导入、渲染作业和系统诊断。界面能完成的场景修改 SHALL 能通过 API 完成。
+控制 API SHALL 暴露与场景编排能力等价的方法，至少覆盖场景生命周期、场景库查询/切换/删除、实体增删改查、变换、角色创建与动画挂接、道具创建与材质物理、灯光创建与更新、环境参数与预设、相机创建与激活、资产导入、渲染作业和系统诊断。界面能完成的场景修改 SHALL 能通过 API 完成。控制 API SHALL 同时覆盖制作包、沙盒规则、导演干预、会话重演、历史分支和 Take 方法。
 
 #### Scenario: 界面与 API 等价
 
@@ -281,3 +281,274 @@
 
 - **WHEN** 客户端携带上次快照版本请求增量
 - **THEN** 系统返回自该版本以来的变更或指示需要完整快照
+
+#### Scenario: 导演与重演方法可用
+
+- **WHEN** 客户端调用 `system.methods`
+- **THEN** 返回包含 `production.*`、`sandbox.*`、`director.*`、`replay.*` 和 `take.*` 的方法目录及权限要求
+
+### Requirement: 会话与表演命令覆盖
+
+控制 API SHALL 暴露多人会话和表演命令，至少覆盖 `session.create`、`session.start`、`session.join`、`session.leave`、`session.status`、`session.snapshot`、`session.export`、`session.end`、`session.kick`、`session.setRole`、`session.reconnect`、`session.assignCharacter`、`session.releaseCharacter`、`session.transferCharacter`、`network.status`、`network.players`、`performance.action`、`performance.expression`、`performance.voice` 和 `performance.motionMatching`。方法目录 SHALL 标明每个方法是否修改世界和是否异步；会话角色和所有权在运行时校验，失败返回 `FORBIDDEN`。
+
+#### Scenario: 查询多人方法
+
+- **WHEN** 客户端调用 `system.methods`
+- **THEN** 返回上述多人方法的名称、描述、是否修改世界和是否异步，现有单用户方法保持不变
+
+#### Scenario: 导演通过 API 查询会话
+
+- **WHEN** 持有有效令牌的导演客户端调用 `session.status`
+- **THEN** 返回会话标识、玩家与角色、角色占用、世界版本和网络统计
+
+#### Scenario: 自动化客户端以表演者身份播放动作
+
+- **WHEN** 已加入会话的自动化客户端以表演者身份调用 `performance.action` 并指定自己的角色
+- **THEN** 服务器校验会话和所有权后返回动作结果，事件通道发布对应表演事件
+
+### Requirement: 世界交互命令覆盖
+
+控制 API SHALL 暴露物品、库存、制作和建造命令，至少覆盖 `item.spawn`、`item.pickup`、`item.hold`、`item.release`、`item.drop`、`inventory.get`、`craft.start`、`craft.status`、`craft.cancel`、`build.confirm`、`build.undo` 和 `world.status`。方法目录 SHALL 标明每个方法所需的会话角色、是否修改世界和是否可取消。
+
+#### Scenario: 拾取物品
+
+- **WHEN** 已加入会话的自动化客户端以表演者身份调用 `item.pickup` 并指定附近的物品
+- **THEN** 服务器校验距离和所有权后返回持有结果，事件通道发布物品状态变化
+
+#### Scenario: 查询制作进度
+
+- **WHEN** 客户端调用 `craft.status` 查询自己发起的制作
+- **THEN** 返回配方、进度、剩余时间和状态，不泄露其他玩家的私有库存
+
+#### Scenario: 确认建造
+
+- **WHEN** 已加入会话的自动化客户端以表演者身份调用 `build.confirm` 并提交预览位置
+- **THEN** 服务器校验位置、材料和权限后生成结构，失败时返回对应领域错误
+
+### Requirement: 会话角色错误
+
+控制 API SHALL 为多人命令返回稳定的领域错误码，至少包括 `SESSION_NOT_FOUND`、`SESSION_FULL`、`SESSION_ALREADY_EXISTS`、`SESSION_ALREADY_ENDED`、`FORBIDDEN`、`CHARACTER_ALREADY_OWNED` 和 `SCENE_VERSION_UNSUPPORTED`。`FORBIDDEN` 覆盖未授权会话成员、角色权限不足和私有库存访问；错误 SHALL 包含会话标识、发起玩家标识和请求标识，且 SHALL NOT 泄露其他玩家令牌或私有库存内容。
+
+#### Scenario: 未加入会话
+
+- **WHEN** 客户端调用 `performance.action` 但没有有效会话成员身份
+- **THEN** 返回 `FORBIDDEN`，不执行动作，日志记录请求标识
+
+#### Scenario: 角色不匹配
+
+- **WHEN** 表演者调用 `session.end`
+- **THEN** 返回 `FORBIDDEN`，会话保持运行
+
+#### Scenario: 所有权冲突
+
+- **WHEN** 两个玩家同时请求控制同一个未分配角色
+- **THEN** 先到请求成功，后到请求返回 `CHARACTER_ALREADY_OWNED`，角色只有一个所有者
+
+### Requirement: 会话事件通道
+
+控制 API 的 WebSocket 事件通道 SHALL 支持订阅会话、表演、物品、制作和建造事件。事件 SHALL 带会话标识、单调递增序号、时间戳、事件类型和受影响实体；客户端 SHALL 能按会话和事件类别过滤，并能从指定序号补发。
+
+#### Scenario: 订阅会话事件
+
+- **WHEN** 客户端建立 WebSocket 并订阅 `session.*`、`performance.*` 和 `build.*`
+- **THEN** 客户端收到匹配类别的事件，不收到未订阅类别的事件
+
+#### Scenario: 事件补发
+
+- **WHEN** 客户端从保留窗口内的序号重新连接
+- **THEN** 系统补发该序号之后的会话事件，序号连续
+
+#### Scenario: 事件缺口
+
+- **WHEN** 客户端请求的序号早于保留窗口
+- **THEN** 系统发送需要完整会话快照的指示，客户端重新获取快照
+
+### Requirement: 导演与重演权限绑定
+
+控制 API SHALL 把导演、重演和 Take 命令绑定到参与者令牌和会话角色。只有 owner 或 director SHALL 能执行导演干预、创建分支、启动重演和固化 Take；Viewer、performer 和 agent SHALL 只获得查询或被授权的 ghost 读取能力。
+
+#### Scenario: Director 执行导演命令
+
+- **WHEN** 持有 director 参与者令牌的客户端提交 `director.pause`
+- **THEN** 命令被执行并返回新的世界版本和事件序号
+
+#### Scenario: Performer 请求分支
+
+- **WHEN** performer 令牌调用 `replay.branch`
+- **THEN** 命令被拒绝并返回 `FORBIDDEN`，不创建分支
+
+#### Scenario: 令牌与会话不匹配
+
+- **WHEN** 参与者令牌属于另一会话
+- **THEN** 命令被拒绝并返回 `PARTICIPANT_NOT_BOUND`，不泄露目标会话状态
+
+### Requirement: 沙盒与导演事件流
+
+WebSocket SHALL 支持 `sandbox.*`、`narrative.*`、`director.*`、`replay.*` 和 `take.*` 事件类别，并允许按会话、参与者、节拍、实体和事件类别过滤。客户端 SHALL 能用 `since` 补发；历史不足时 SHALL 返回 `events.gap` 并要求重新快照。
+
+#### Scenario: 订阅导演事件
+
+- **WHEN** 客户端订阅 `director.*` 和 `narrative.*`
+- **THEN** 只收到匹配类别的新事件，不收到无关沙盒生成事件
+
+#### Scenario: 按节拍过滤
+
+- **WHEN** 客户端以节拍标识过滤叙事事件
+- **THEN** 只收到该节拍及其子事件，其他节拍事件被忽略
+
+#### Scenario: 历史缺口
+
+- **WHEN** 请求的 `since` 早于保留窗口
+- **THEN** 系统发送 `events.gap` 并要求客户端获取新快照或使用 ghost 检查点
+
+### Requirement: 重演 API 契约
+
+控制 API SHALL 提供 `replay.start`、`replay.status`、`replay.cancel`、`replay.branch` 和 `replay.ghost`。重演 SHALL 返回请求标识、目标事件序号、状态、精确性标记、检查点和差异摘要；重演不得阻塞实时会话。
+
+#### Scenario: 启动精确重演
+
+- **WHEN** 客户端请求重演到有效事件序号且版本摘要一致
+- **THEN** 返回重演作业标识，状态最终为 `succeeded` 且 `exact=true`
+
+#### Scenario: 重演差异
+
+- **WHEN** 重演后的状态摘要与录制不一致
+- **THEN** 返回 `REPLAY_DIVERGED`、首个差异事件和字段，状态为 `failed`
+
+#### Scenario: 取消重演
+
+- **WHEN** 客户端取消运行中的重演
+- **THEN** 重演停止并返回 `cancelled`，live 会话和日志不受影响
+
+#### Scenario: 创建分支
+
+- **WHEN** 客户端从有效事件序号创建分支
+- **THEN** 返回新会话标识、父会话标识和分叉序号，原会话不变
+
+### Requirement: Ghost 与检查点查询
+
+控制 API SHALL 提供只读 ghost 会话和检查点查询，返回事件序号范围、快照摘要、可用相机和叙事状态。Ghost 查询 SHALL 限制响应大小并支持分页；超出保留窗口 SHALL 返回 `REPLAY_HISTORY_UNAVAILABLE`。
+
+#### Scenario: 查询可用范围
+
+- **WHEN** 客户端查询会话重演范围
+- **THEN** 返回最早可用检查点、最新事件序号和可用节拍摘要
+
+#### Scenario: 分页读取事件
+
+- **WHEN** 客户端请求超过单页上限的事件范围
+- **THEN** 系统返回受限页和下一页游标，不截断为静默丢失
+
+#### Scenario: Ghost 写入被拒绝
+
+- **WHEN** 客户端在 ghost 会话调用修改方法
+- **THEN** 返回 `REPLAY_READ_ONLY`，不产生事件
+
+### Requirement: Take API 与版本不可变
+
+控制 API SHALL 提供 Take 创建、校验、查询和渲染方法。Take SHALL 记录版本、事件区间、镜头轨道、分辨率预设和内容摘要；修改已保存 Take SHALL 创建新版本，不得原地覆盖，渲染 SHALL 接受显式 Take 版本。
+
+#### Scenario: 创建 Take
+
+- **WHEN** 导演提交有效事件区间和相机轨道
+- **THEN** 返回 Take 标识、版本和内容摘要
+
+#### Scenario: 修改 Take
+
+- **WHEN** 导演修改已保存 Take
+- **THEN** 返回新的 Take 版本，旧版本仍可查询和渲染
+
+#### Scenario: 渲染缺失依赖
+
+- **WHEN** 客户端请求渲染的 Take 引用的快照或相机不存在
+- **THEN** 返回 `TAKE_DEPENDENCY_MISSING`，不创建渲染作业
+
+### Requirement: 确定性与日志元数据
+
+`system.health`、`system.methods` 和会话快照 SHALL 报告模拟 tick 率、随机种子支持、内容摘要、日志校验状态、重演能力和保留窗口。客户端 SHALL 能据此判断某次重演是否可能精确。
+
+#### Scenario: 健康检查报告重演能力
+
+- **WHEN** 客户端调用 `system.health`
+- **THEN** 返回 `replaySupported`、固定 tick 率、日志版本和内容摘要
+
+#### Scenario: 会话不可精确重演
+
+- **WHEN** 会话日志校验失败或版本摘要缺失
+- **THEN** 快照中的 `replayable=false` 并附带原因
+
+### Requirement: Agent 控制方法
+
+控制 API SHALL 暴露 Agent 会话与角色控制方法，至少覆盖 `session.heartbeat`、`character.moveTo`、`character.lookAt`、`character.stop` 和 `character.state`。方法目录 SHALL 标明所需参与者类型、是否修改世界、是否异步和所需角色租约。
+
+#### Scenario: 枚举 Agent 方法
+
+- **WHEN** 客户端调用 `system.methods`
+- **THEN** 返回 Agent 方法及其参与者类型、修改性、异步性和租约要求，既有方法保持可用
+
+#### Scenario: 查询角色状态
+
+- **WHEN** Agent 调用 `character.state` 查询自己持有租约的角色
+- **THEN** 返回位置、朝向、速度、动作、租约和状态版本
+
+#### Scenario: 续租
+
+- **WHEN** Agent 在租约到期前调用 `session.heartbeat`
+- **THEN** 返回新的到期时间和状态版本，租约继续有效
+
+### Requirement: Agent 命令关联
+
+Agent 控制命令 SHALL 接受请求标识、幂等键和期望状态版本，并在响应中返回请求标识、结果状态和提交后的状态版本。缺少请求标识 SHALL 按参数错误拒绝；相同幂等键和参数 SHALL 返回首次结果。
+
+#### Scenario: 响应关联
+
+- **WHEN** Agent 提交带 `requestId` 的 `character.moveTo`
+- **THEN** 响应包含相同 `requestId`、`ok`、`result` 和 `stateVersion`
+
+#### Scenario: 幂等重试
+
+- **WHEN** Agent 以相同幂等键重试已成功的移动命令
+- **THEN** 返回首次结果，不重新开始移动
+
+#### Scenario: 状态版本冲突
+
+- **WHEN** Agent 提交低于当前状态版本的 `expectedStateVersion`
+- **THEN** 返回 `STALE_STATE`，不修改角色或世界
+
+### Requirement: Agent 事件过滤
+
+WebSocket 事件通道 SHALL 支持按会话、参与者、角色和事件类别过滤 Agent 事件，并 SHALL 允许从指定序号补发。事件 SHALL 包含关联请求标识（适用时）、会话标识、参与者标识、角色标识、序号和时间戳。
+
+#### Scenario: 按角色订阅
+
+- **WHEN** Agent 订阅自己的角色和 `character.*`、`performance.*` 事件
+- **THEN** 只收到该角色和匹配类别的后续事件
+
+#### Scenario: 关联请求
+
+- **WHEN** Agent 发送一条表演或移动命令并随后收到完成事件
+- **THEN** 事件包含原命令的请求标识，Agent 可以匹配请求和结果
+
+#### Scenario: 断线补发
+
+- **WHEN** Agent 从保留窗口内的序号重新连接
+- **THEN** 系统补发该序号之后的匹配事件，序号连续
+
+### Requirement: 控制 API 参与者绑定
+
+控制 API SHALL 把 Agent 命令绑定到经过认证的会话参与者，并 SHALL NOT 仅依赖请求参数中的玩家标识判断控制权。未绑定会话的请求、参与者不匹配的请求和过期租约的请求 SHALL 在应用前被拒绝。
+
+#### Scenario: 未绑定参与者
+
+- **WHEN** 已认证的 API 调用者提交角色移动命令但没有绑定会话参与者
+- **THEN** 返回 `PARTICIPANT_NOT_BOUND`，不执行命令
+
+#### Scenario: 伪造参与者
+
+- **WHEN** API 调用者尝试用另一个 Agent 的参与者标识控制角色
+- **THEN** 返回 `FORBIDDEN`，目标角色状态不变
+
+#### Scenario: 查看者调用控制 API
+
+- **WHEN** 绑定为 Viewer 的参与者调用修改角色或世界的 API 方法
+- **THEN** 返回 `VIEWER_READ_ONLY`，不执行命令

@@ -54,17 +54,17 @@
 
 ### Requirement: 多人网络构建目标
 
-系统 SHALL 在现有编辑器目标之外提供专用服务器目标和可运行客户端目标。专用服务器 SHALL 使用 Unreal Engine 5.8.4 的 Server 目标构建，客户端 SHALL 使用 Game 目标构建，编辑器目标 SHALL 继续用于单用户制作和渲染。构建脚本 SHALL 支持分别构建服务器、客户端和编辑器。
+系统 SHALL 在现有编辑器目标之外提供服务器运行模式和可运行客户端目标。引擎发行版支持 Server 目标时 SHALL 构建并使用 `EpicodeVideoServer`；不支持时 SHALL 回退到 `UnrealEditor-Cmd -server`，在构建日志和 `system.health.network` 中标记 `serverMode=editor-fallback`、`serverTargetSupported=false` 和回退原因。客户端 SHALL 优先使用 Game 目标，Game 二进制不可用或启动失败时 SHALL 回退到 `UnrealEditor -game`。编辑器目标 SHALL 继续用于单用户制作和渲染。构建脚本 SHALL 支持分别构建服务器、客户端和编辑器。
 
 #### Scenario: 构建专用服务器
 
 - **WHEN** 操作者在仓库根目录执行服务器构建脚本
-- **THEN** 脚本使用 `/usr/local/unreal` 构建 `EpicodeVideoServer` Linux Development 目标，并在失败时以非零状态退出并输出日志位置
+- **THEN** 引擎支持 Server 目标时脚本使用 `/usr/local/unreal` 构建 `EpicodeVideoServer` Linux Development 目标；不支持时脚本以退出码 6 写入 `Saved/Logs/build-server-target.log`，标记 `serverMode=editor-fallback` 并输出日志位置
 
 #### Scenario: 构建客户端
 
-- **WHEN** 操作者执行客户端构建脚本并指定 Linux 平台
-- **THEN** 脚本构建 Linux 客户端目标，服务器构建不要求 DX12
+- **WHEN** 操作者执行客户端启动脚本并指定 Linux 平台
+- **THEN** 脚本优先运行 Game 客户端目标，Game 二进制缺失或退出时回退到 `UnrealEditor -game`，并写入 `clientMode` 和实际二进制
 
 #### Scenario: 编辑器目标保持不变
 

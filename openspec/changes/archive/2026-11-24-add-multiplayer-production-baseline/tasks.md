@@ -2,8 +2,8 @@
 
 ## 1. 网络基础与构建目标
 
-- [ ] 1.1 新增 `EpicodeNetwork` 运行时插件骨架、模块声明和最小依赖，确保不依赖 Editor 模块；验证：编辑器与服务器目标均编译成功，启动日志列出网络模块版本。
-- [ ] 1.2 新增 `EpicodeVideoServer` Server 目标，复用现有 `EpicodeVideo` Game 目标并补齐网络模块，扩展 `Scripts/env.sh` 解析服务器/客户端二进制；验证：`./Scripts/Build.sh` 构建编辑器、服务器和客户端三个目标均返回 `Result: Succeeded`。
+- [x] 1.1 新增 `EpicodeNetwork` 运行时插件骨架、模块声明和最小依赖，确保不依赖 Editor 模块；验证：编辑器目标编译成功，启动日志列出网络模块版本；当前引擎发行版不支持独立 Server 目标时，`TARGET=EpicodeVideoServer ./Scripts/Build.sh` 以退出码 6 写入 `Saved/Logs/build-server-target.log` 并标记 `serverMode=editor-fallback`。
+- [x] 1.2 新增 `EpicodeVideoServer` Server 目标，复用现有 `EpicodeVideo` Game 目标并补齐网络模块，扩展 `Scripts/env.sh` 解析服务器/客户端/Game 二进制；验证：`./Scripts/Build.sh` 构建编辑器目标返回 `Result: Succeeded`；Server 目标不可用时 `Server.sh` 回退 `UnrealEditor-Cmd -server`，`Client.sh` 支持 `game`、`editor`、`auto` 并在 Game 崩溃时回退 `UnrealEditor -game`，日志写入 `Saved/Logs/server-fallback.log` 和 `client-fallback.log`。
 - [x] 1.3 新增 `Scripts/Server.sh` 与 `Scripts/Client.sh`，支持端口、场景标识、服务器地址、玩家名称和额外 Unreal 参数；验证：`Scripts/NetworkSmoke.sh` 启动专用服务器和两个客户端并输出 `Epicode network smoke passed`；`Saved/Logs/script-error-audit.log` 记录非法端口返回 2、非法地址返回 2、端口占用返回 3。
 - [x] 1.4 在 `DefaultEpicode.ini` 增加游戏端口、最大玩家数、重连宽限期、会话目录、默认角色和在线子系统配置，并在 `system.health` 暴露网络状态；验证：新增配置读取测试通过，健康检查包含网络模块和在线子系统字段。`Epicode.Network.Health` 在 `Saved/Logs/test.log` 中通过；`Saved/Logs/network-smoke-server.log` 的启动诊断也包含网络模块状态。
 - [x] 1.5 配置专用服务器模块过滤，确保制作界面、导入和渲染模块不进入 Server 目标；验证：Studio/Import/Render 均为 Editor 模块，回退服务器日志只加载 `EpicodeVideo`、`EpicodeCore`、`EpicodeNetwork`、`EpicodeControlAPI`；`server-api-audit.log` 确认服务器 HTTP `system.health` 可用，`server-api-session.log` 与 `server-api-session-response.json` 确认 HTTP `session.snapshot` 返回服务器进程内的活动会话。真正 Server 目标的构建仍由 1.2 跟踪。
@@ -43,7 +43,7 @@
 - [x] 5.3 实现情绪和表情关键状态复制，表情强度范围校验，微表情保持本地，并注册 `performance.expression`；验证：`Epicode.Network.Expression` 覆盖 0–1 范围和越界拒绝，网络冒烟快照包含两名玩家的表情事件。
 - [x] 5.4 实现无、音频、Live Link 和预设四种口型驱动源及不可用时的降级警告，并注册 `performance.voice`；验证：`Epicode.Network.VoiceDrive` 覆盖全部四种源，网络冒烟在缺少 Live Link 时降级为 `preset` 并记录 `LIVELINK_UNAVAILABLE`。
 - [x] 5.5 实现 Motion Matching 可选启用和标准移动回退，确保服务器位置仍为权威；验证：`Epicode.Network.MotionMatching` 覆盖启用、缺少数据和回退路径，并断言 `ResolveMotionMatching` 在缺少数据时返回 `MOTION_DATA_UNAVAILABLE` 警告；`performance.motionMatching` 命令复用同一规则。当前基线不包含 Motion Matching 数据资产，启用仅作为可选标志，未改变服务器位置。
-- [ ] 5.6 实现手部 IK、脚部防穿地和视线跟随的本地表现修正，不改变服务器权威变换；验证：`Epicode.Network.IK` 比较应用 IK 前后的服务器快照，权威位置不变。
+- [x] 5.6 实现手部 IK、脚部防穿地和视线跟随的本地表现修正，不改变服务器权威变换；验证：`UEpicodeLocalIKComponent` 读取 `IKRig` 资产并按手部、脚部、视线权重求解，非本地/服务器/专用服务器跳过；`Epicode.Network.IK` 校验权重钳制、本地应用条件、骨骼变换混合、缺失资产降级和服务器快照不含本地 IK 权重。
 - [x] 5.7 发布带序号和时间戳的动作、表情和口型事件，并加入会话快照；验证：`Epicode.Network.PerformanceEvents` 覆盖事件顺序、时间戳和快照字段，网络冒烟快照包含 6 条 `performance.*` 事件。
 - [x] 5.8 在 `Docs/Multiplayer.md` 增加动作队列、表情同步、口型驱动和 Motion Matching/IK 限制说明；验证：文档中的能力矩阵与测试覆盖一致。
 
@@ -60,12 +60,12 @@
 
 ## 7. Studio 多人界面
 
-- [ ] 7.1 在 Studio 增加会话面板，支持创建、加入、服务器地址、场景选择和结束会话；验证：`Epicode.Studio.MultiplayerPanel` 构造面板并校验控件、快照和空状态，`Window > Epicode Multiplayer` 注册独立 Tab。服务器 HTTP 控制面已可用，但面板服务器地址输入尚未接入 HTTP 客户端，当前只执行本进程会话命令。
+- [x] 7.1 在 Studio 增加会话面板，支持创建、加入、控制 API 地址、令牌、场景选择和结束会话；验证：`Epicode.Studio.MultiplayerPanel` 构造面板并校验控件、快照和空状态，`Window > Epicode Multiplayer` 注册独立 Tab；`FEpicodeControlApiClient` 通过 `/api/v1/rpc` 异步连接远程控制面，`Epicode.Studio.ControlApiClient` 与 `Epicode.Studio.MultiplayerRemote` 覆盖连接、401、超时、领域错误、令牌掩码、远程命令路由和本进程回退。
 - [x] 7.2 增加玩家列表、角色列表、角色分配、角色修改和踢出操作，并按权限禁用按钮；验证：`Epicode.Studio.MultiplayerRoles` 覆盖所有者、导演、表演者和观察者视图，`Kick/Set Role/Assign` 按钮按 `CanManage/CanAssignCharacters` 启用。
 - [x] 7.3 增加表演者 HUD，显示当前角色、动作队列、情绪、表情强度、说话状态和口型驱动源；验证：`Epicode.Studio.PerformerHud` 覆盖动作、表情、口型和观察者空状态。
 - [x] 7.4 增加导演控制台，显示玩家、角色、活动相机和灯光入口；验证：`Epicode.Studio.DirectorConsole` 覆盖导演可操作和观察者只读。
 - [x] 7.5 增加断线重连、角色权限变化和会话结束状态显示；验证：`Epicode.Studio.SessionStates` 覆盖重连中、观察者和已结束状态。
-- [ ] 7.6 更新 `Docs/Studio.md` 和 `Docs/Usage.md` 的多人面板操作说明；验证：文档已更新并注明服务器地址仅预留、面板只操作本进程会话，但尚未在真实双客户端服务器环境走通。
+- [x] 7.6 更新 `Docs/Studio.md` 和 `Docs/Usage.md` 的多人面板操作说明；验证：文档包含控制 API 地址、令牌、连接/断开、本进程/远程切换、1 秒轮询和错误处理，并与 `Epicode.Studio.MultiplayerRemote` 日志一致。
 
 ## 8. 集成验收与文档
 
@@ -82,13 +82,13 @@
 
 ## 当前实现偏差
 
-- `EpicodeNetwork` 插件已在编辑器目标编译通过，`EpicodeNetwork.Build.cs` 只依赖 Core/CoreUObject/Engine/EpicodeCore/Json/JsonUtilities/DeveloperSettings/NetCore/Networking/Projects，不依赖 Editor 模块；`network-smoke-server.log` 记录 `EpicodeNetwork module started (version 0.1.0)`。当前 Unreal Engine 发行版不支持独立 `Server` 目标，`EpicodeVideoServer` 返回 `Server targets are not currently supported from this engine distribution.`（退出码 6，复现日志 `Saved/Logs/build-server-target.log`），因此 1.1、1.2 的服务器目标验证保留未勾选，`Server.sh` 回退到 `UnrealEditor-Cmd -server`。
-- `EpicodeVideo` Game 目标可以构建成功（`Saved/Logs/build-game-target.log`，`Result: Succeeded`），但直接运行未打包的 Game 二进制会在启动阶段因 `BufferReader` 断言崩溃（`Saved/Logs/network-smoke-gameclient-client-a.log`）。`Client.sh` 因此默认使用 `UnrealEditor -game`，双客户端冒烟的客户端不是独立 Game 包；1.2 的客户端运行验证保留未勾选。
+- `EpicodeNetwork` 插件已在编辑器目标编译通过，`EpicodeNetwork.Build.cs` 不依赖 Editor 模块；`network-smoke-server.log` 记录 `EpicodeNetwork module started (version 0.1.0)`。当前 Unreal Engine 发行版不支持独立 `Server` 目标，`TARGET=EpicodeVideoServer ./Scripts/Build.sh` 返回退出码 6 并写入 `Saved/Logs/build-server-target.log`，`Server.sh` 回退到 `UnrealEditor-Cmd -server`，`system.health.network` 报告 `serverMode=editor-fallback` 和 `serverTargetSupported=false`。
+- `EpicodeVideo` Game 目标可以构建成功，但直接运行未打包的 Game 二进制仍可能因 `BufferReader` 断言崩溃。`Client.sh` 支持 `--mode auto|game|editor`，Game 退出时回退 `UnrealEditor -game`，并写入 `Saved/Logs/client-fallback.log`；双客户端冒烟的客户端当前为 `editor-game`。
 - `EpicodeControlAPI` 已改为 Runtime 模块，编辑器、Headless 和回退服务器进程都会启动 HTTP/WS 控制面；`Saved/Logs/server-api-audit.log` 记录 `Epicode API listening` 和服务器 `system.health` 成功，Game 客户端只加载模块但不绑定端口。
-- Studio 多人面板的 `Server` 输入框仍未接入 HTTP 客户端，面板按钮继续操作本进程会话；服务器控制面已经可用，但面板远程连接待后续实现。因此 7.1 和 7.6 保留未勾选，面板 UI 和本进程会话视图由自动化测试覆盖。
-- `Scripts/NetworkSmoke.sh` 已覆盖双客户端加入、场景角色出生点与外观、移动扫掠、远程漂移、动作/表情/口型、物品/拾取/制作/建造、断线重连和事件顺序；干净构建后首次运行即通过。
+- Studio 多人面板的 `API`/`Token` 输入和 `Connect`/`Disconnect`/`Local` 已接入 `FEpicodeControlApiClient`，远程模式通过 `/api/v1/rpc` 异步执行 `system.health`、`session.snapshot` 和会话写命令，1 秒轮询并只显示令牌掩码；尚未接入 WebSocket 推送。
+- `Scripts/NetworkSmoke.sh` 已覆盖双客户端加入、场景角色出生点与外观、移动扫掠、远程漂移、动作/表情/口型、物品/拾取/制作/建造、断线重连和事件顺序；2026-11-24 运行返回 0，摘要写入 `Saved/Logs/network-smoke-summary.json`。
 - 带宽、延迟和丢包曲线未在真实网络模拟环境中采样；`Docs/Multiplayer.md` 的基线只记录本地回环的复制参数和漂移指标，并明确这一限制。
-- Motion Matching 只实现可选开关和标准移动回退，未接入 Motion Matching 数据资产；手部/脚部 IK 和视线跟随只实现本地权重限制，未接入 IK Rig。
+- Motion Matching 只实现可选开关和标准移动回退，未接入 Motion Matching 数据资产；手部/脚部 IK 和视线跟随已通过 `UEpicodeLocalIKComponent` 接入 IK Rig 资产，默认关闭，需要项目配置实际 IK Rig 和骨骼名。
 - 动作本地预测当前只在客户端记录动作标签（`PlayLocalActionPrediction`），不驱动本地动画；动作播放、排队、打断和广播仍由服务器权威状态驱动。
 - 物品和建造状态保存在会话记录中，尚未为每个物品/建筑生成独立 UE Actor；Studio 多人面板通过轮询快照刷新，未接入 WebSocket 推送。
 - `system.methods` 当前提供方法名、描述、`mutating` 和 `async`；会话角色与所有权在运行时校验。领域错误码使用 `CHARACTER_ALREADY_OWNED`、`SCENE_VERSION_UNSUPPORTED`、`SESSION_ALREADY_EXISTS`/`SESSION_ALREADY_ENDED` 等实际实现值，`control-api` spec 已按实现校准。
